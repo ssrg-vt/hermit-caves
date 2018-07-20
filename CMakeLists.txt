@@ -52,8 +52,15 @@ target_compile_options(proxy PUBLIC ${LIBS})
 target_compile_options(proxy PUBLIC -DMAX_ARGC_ENVC=${MAX_ARGC_ENVC})
 target_link_libraries(proxy ${LIBS})
 
-install(TARGETS proxy
-	DESTINATION bin)
+
+if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
+	install(TARGETS proxy
+		DESTINATION aarch64-hermit/bin)
+else()
+	install(TARGETS proxy
+		DESTINATION bin)
+endif()
+
 
 # Show include files in IDE
 file(GLOB_RECURSE TOOLS_INCLUDES "*.h")
