@@ -981,6 +981,9 @@ int uhyve_gdb_enable_ss(int vcpufd)
 {
 	stepping = true;
 
+	should_restore_int = get_fiq_status();
+	mask_fiqs();
+
 	if (uhyve_gdb_update_guest_debug(vcpufd) == -1)
 		return -1;
 
@@ -990,6 +993,11 @@ int uhyve_gdb_enable_ss(int vcpufd)
 int uhyve_gdb_disable_ss(int vcpufd)
 {
 	stepping = false;
+
+		if(should_restore_int) {
+			should_restore_int = 1;
+			unmask_fiqs();
+		}
 
 	if (uhyve_gdb_update_guest_debug(vcpufd) == -1)
 		return -1;
