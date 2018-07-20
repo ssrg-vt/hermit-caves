@@ -60,6 +60,7 @@
 #include "uhyve.h"
 #include "proxy.h"
 #include "uhyve-migration.h"
+#include "uhyve-het-migration.h"
 
 #define GUEST_OFFSET		0x0
 
@@ -81,6 +82,8 @@
 
 #define ARM64_CORE_REG(x)		(KVM_REG_ARM64 | KVM_REG_SIZE_U64 |\
 					 KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(x))
+#define ARM_CPU_ID		3, 0, 0, 0
+#define ARM_CPU_ID_MPIDR	5
 
 /* Used to walk the page table */
 #define PT_ADDR_MASK	0xFFFFFFFFF000

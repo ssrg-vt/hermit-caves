@@ -5,10 +5,17 @@ include(CheckIncludeFiles)
 include(../cmake/HermitCore-Paths.cmake)
 
 option(ENABLE_RDMA_MIGRATION "Migration support via RDMA" OFF)
-set(MAX_ARGC_ENVC 128 CACHE STRING "Maximum size of argc/envc forwarded to the
-	guest (in items)")
+
+if(NOT DEFINED MAX_ARGC_ENVC)
+	set(MAX_ARGC_ENVC 128 CACHE STRING "Maximum size of argc/envc forwarded to
+	the	guest (in items)")
+endif()
 
 add_compile_options(-std=c99)
+
+if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
+	SET(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
+endif()
 
 list(APPEND LIBS "-pthread")
 list(APPEND LIBS "-lrt")

@@ -30,31 +30,18 @@
 #include <inttypes.h>
 
 struct uhyve_gdb_regs {
-    uint64_t rax;
-    uint64_t rbx;
-    uint64_t rcx;
-    uint64_t rdx;
-    uint64_t rsi;
-    uint64_t rdi;
-    uint64_t rbp;
-    uint64_t rsp;
-    uint64_t r8;
-    uint64_t r9;
-    uint64_t r10;
-    uint64_t r11;
-    uint64_t r12;
-    uint64_t r13;
-    uint64_t r14;
-    uint64_t r15;
-    uint64_t rip;
-    uint64_t eflags;
-
-    uint32_t cs;
-    uint32_t ss;
-    uint32_t ds;
-    uint32_t es;
-    uint32_t fs;
-    uint32_t gs;
-};
+	uint64_t x[31];
+	uint64_t sp;
+	uint64_t pc;
+	uint32_t cpsr;
+	/* we need to pack this structure so that the compiler does not insert any
+	 * padding (for example to have the structure size being a multiple of 8
+	 * bytes. Indeed, when asking the server for the values of the registers,
+	 * gdb client looks at the size of the response (function of the size of
+	 * this structure) to determine which registers are concerned. They are
+	 * furthermore determine by a convention of order and sizes according to
+	 * the following: https://github.com/bminor/binutils-gdb/blob/master/gdb/
+	 * features/aarch64-core.xml */
+} __attribute__ ((__packed__));
 
 #endif /* UHYVE_GDB_AARCH64_H */

@@ -1040,6 +1040,12 @@ int main(int argc, char **argv)
 	int ret;
 	struct timeval tv;
 
+	if(argc < 2) {
+		fprintf(stderr, "Error: kernel missing!\nUsage: %s kernel "
+				"[arguments]\n", argv[0]);
+		return -EINVAL;
+	}
+
 	gettimeofday(&tv, 0x0);
 	boot_gtod = tv.tv_usec;
 	boot_gtod += tv.tv_sec * 1000000ULL;

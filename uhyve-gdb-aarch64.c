@@ -726,7 +726,7 @@ static int uhyve_gdb_update_guest_debug(int vcpufd)
 		dbg.control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_USE_SW_BP;
 
 	/* FIXME: HW breakpoints support needed for ARM */
-	if (!SLIST_FOREACH(&hw_breakpoints))
+	if (!SLIST_EMPTY(&hw_breakpoints))
 		warnx("HW breakpoints not supported for ARM64\n");
 
 	kvm_ioctl(vcpufd, KVM_SET_GUEST_DEBUG, &dbg);

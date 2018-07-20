@@ -114,6 +114,7 @@
 #include "uhyve-x86_64.h"
 #include "uhyve-syscalls.h"
 #include "uhyve-migration.h"
+#include "uhyve-het-migration.h"
 #include "uhyve-net.h"
 #include "proxy.h"
 

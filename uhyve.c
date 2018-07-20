@@ -288,7 +288,7 @@ static int vcpu_loop(void)
 	if (uhyve_gdb_enabled) {
 		if (cpuid == 0) {
 #ifdef __aarch64__
-			uhyve_aarch64_find_pt_root(program_name);
+			uhyve_aarch64_find_pt_root(guest_path);
 #endif
 			uhyve_gdb_init(vcpufd);
 		}

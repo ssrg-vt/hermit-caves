@@ -50,3 +50,14 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Cmake build folder and local install prefix
+build/
+prefix
+
+# Tags stuff
+tags
+cscope.out
+
+# Vim swap files
+*.swp
