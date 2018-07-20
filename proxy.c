@@ -46,8 +46,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include "proxy.h"
+#include "uhyve.h"
 
 #define MAX_PATH	255
 #define MAX_ARGS	1024
@@ -1036,6 +1038,11 @@ out:
 int main(int argc, char **argv)
 {
 	int ret;
+	struct timeval tv;
+
+	gettimeofday(&tv, 0x0);
+	boot_gtod = tv.tv_usec;
+	boot_gtod += tv.tv_sec * 1000000ULL;
 
 	char* v = getenv("HERMIT_VERBOSE");
 	if (v && (strcmp(v, "0") != 0)) {

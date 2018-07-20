@@ -59,6 +59,7 @@
 
 #include "uhyve.h"
 #include "proxy.h"
+#include "uhyve-migration.h"
 
 #define GUEST_OFFSET		0x0
 
@@ -80,12 +81,18 @@
 
 #define ARM64_CORE_REG(x)		(KVM_REG_ARM64 | KVM_REG_SIZE_U64 |\
 					 KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(x))
-#define ARM_CPU_ID		3, 0, 0, 0
-#define ARM_CPU_ID_MPIDR	5
+
+/* Used to walk the page table */
+#define PT_ADDR_MASK	0xFFFFFFFFF000
+#define PT_ROOT_SYMNAME	"l0_pgtable"
+static uint64_t pt_root = 0;
 
 static bool cap_irqfd = false;
 static bool cap_read_only = false;
 static int gic_fd = -1;
+
+static uint64_t static_mem_size = 0;
+static uint64_t static_mem_start = 0;
 
 extern size_t guest_size;
 extern uint64_t elf_entry;
@@ -99,6 +106,164 @@ extern uint8_t* mboot;
 extern __thread struct kvm_run *run;
 extern __thread int vcpufd;
 extern __thread uint32_t cpuid;
+
+/* Walk the guest page table to translate a guest virtual into a guest physical
+ * address. This works only for 4KB granule and 4KB pages */
+uint64_t aarch64_virt_to_phys(uint64_t vaddr) {
+	uint64_t pt0_index, pt1_index, pt2_index, pt3_index, paddr;
+	uint64_t *pt0_addr, *pt1_addr, *pt2_addr, *pt3_addr;
+
+	if(!pt_root)
+		errx(-1, "Calling aarch64_virt_to_phys but pt_root is not set, "
+				"exiting\n");
+
+	/* There is a direct virt to phys mapping for all the static memory, so
+	 * we can take the quick path here. This is especially helpful when initial
+	 * breakpoints are set (when the debugger connects before the guest starts
+	 * to execute) as the page table is not installed yet and thus it is not
+	 * possible to do a manual walk */
+	if(vaddr >= static_mem_start && vaddr < (static_mem_start +
+				static_mem_size))
+		return vaddr;
+
+	/* Compute index in level 0 PT: bits 39 to 47 */
+	pt0_index = (vaddr & 0xFF8000000000) >> 39;
+	/* Compute index in level 1 PT: bits 30 to 38 */
+	pt1_index = (vaddr & 0x7FC0000000) >> 30;
+	/* Compute index in level 2 PT: bits 21 to 29 */
+	pt2_index = (vaddr & 0x3FE00000) >> 21;
+	/* Compute index in level 3 PT: bits 12 to 20 */
+	pt3_index = (vaddr & 0x1FF000) >> 12;
+
+	/* Now find page table addresses at each level */
+	pt0_addr = (uint64_t *)((pt_root + (uint64_t)guest_mem) & PT_ADDR_MASK);
+	pt1_addr = (uint64_t *)((pt0_addr[pt0_index] & PT_ADDR_MASK) +
+			(uint64_t)guest_mem);
+	pt2_addr = (uint64_t *)((pt1_addr[pt1_index] & PT_ADDR_MASK) +
+			(uint64_t)guest_mem);
+	pt3_addr = (uint64_t *)((pt2_addr[pt2_index] & PT_ADDR_MASK) +
+			(uint64_t)guest_mem);
+
+	/* last level page table gives us the physical page and we add the offset */
+	paddr = pt3_addr[pt3_index] & PT_ADDR_MASK;
+	paddr = paddr | (vaddr & 0xFFF);
+
+	return paddr;
+}
+
+/* Examine elf symbol table of binary identified by path, and set *addr to the
+ * address of symbol 'symbol_name'. Return 0 on success. */
+int find_symbol_addr(const char *symbol_name, char *path, uint64_t *addr) {
+	int fd, ret, symbol_table_size;
+	Elf64_Ehdr hdr;
+	Elf64_Shdr *shdr = NULL;
+	uint32_t buflen;
+	Elf64_Sym *symtab = NULL;
+	char *strtab = NULL;
+
+	fd = open(path, O_RDONLY);
+	if(fd == -1) {
+		perror("find_symbol_addr - cannot open file\n");
+		return -EINVAL;
+	}
+
+	/* Get the elf header */
+	ret = pread_in_full(fd, &hdr, sizeof(hdr), 0);
+	if (ret < 0)
+		goto out;
+
+	/* Check that we have an actual elf file */
+	if (hdr.e_ident[EI_MAG0] != ELFMAG0
+	    || hdr.e_ident[EI_MAG1] != ELFMAG1
+	    || hdr.e_ident[EI_MAG2] != ELFMAG2
+	    || hdr.e_ident[EI_MAG3] != ELFMAG3
+	    || hdr.e_ident[EI_CLASS] != ELFCLASS64
+	    || hdr.e_type != ET_EXEC || hdr.e_machine != EM_AARCH64) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	/* Get the section header table */
+	buflen = hdr.e_shentsize * hdr.e_shnum;
+	shdr = malloc(buflen);
+	if (!shdr) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	ret = pread_in_full(fd, shdr, buflen, hdr.e_shoff);
+	if (ret < 0)
+		goto out;
+
+	/* Iterate over all section headers to get the symbol table as well as the
+	 * string table */
+	for (Elf64_Half sh_i = 0; sh_i < hdr.e_shnum; sh_i++) {
+		Elf64_Word type = shdr[sh_i].sh_type;
+		uint64_t offset = shdr[sh_i].sh_offset;
+		uint64_t sz = shdr[sh_i].sh_size;
+
+		/* String table (and not the section header string table which has the
+		 * same sh_type value) */
+		if(type == SHT_STRTAB && sh_i != hdr.e_shstrndx) {
+			strtab = malloc(sz);
+			if(!strtab) {
+				ret = -ENOMEM;
+				goto out;
+			}
+
+			ret = pread_in_full(fd, strtab, sz, offset);
+			if(ret < 0)
+				goto out;
+		}
+
+		/* Symbol table */
+		if(type == SHT_SYMTAB) {
+			symtab = malloc(sz);
+			if(!symtab) {
+				ret = -ENOMEM;
+				goto out;
+			}
+
+			ret = pread_in_full(fd, symtab, sz, offset);
+			if(ret < 0)
+				goto out;
+
+			symbol_table_size = sz;
+		}
+	}
+
+	/* Sanity check */
+	if(!strtab || !symtab) {
+		fprintf(stderr, "find_symbol_addr - cannot find string table or "
+				"symbol table\n");
+		ret = -1;
+		goto out;
+	}
+
+	/* Now iterate over the symbol table */
+	ret = -1;
+	for(int i = 0; i<(symbol_table_size/sizeof(Elf64_Sym)); i++) {
+		Elf64_Sym s = symtab[i];
+		Elf64_Word index = s.st_name;
+		Elf64_Addr s_addr = s.st_value;
+
+		if(!strcmp((char *)(strtab + index), symbol_name)) {
+			*addr = s_addr;
+			ret = 0;
+			break;
+		}
+	}
+
+out:
+	if(shdr)
+		free(shdr);
+	if(symtab)
+		free(symtab);
+	if(strtab)
+		free(strtab);
+	close(fd);
+	return ret;
+}
 
 void print_registers(void)
 {
@@ -266,6 +431,46 @@ void init_cpu_state(uint64_t elf_entry)
 	*((volatile uint32_t*) (mboot + 0x130)) = cpuid;
 }
 
+/* Return 1 if guest fiqs are enabled, 0 if the aren't */
+int get_fiq_status(void) {
+	struct kvm_one_reg reg;
+	uint64_t data;
+	reg.addr = (uint64_t)&data;
+
+	reg.id = ARM64_CORE_REG(regs.pstate);
+	kvm_ioctl(vcpufd, KVM_GET_ONE_REG, &reg);
+
+	return (data & PSR_F_BIT) ? 1 : 0;
+}
+
+/* disable guest fiqs */
+void mask_fiqs(void) {
+	struct kvm_one_reg reg;
+	uint64_t data;
+	reg.addr = (uint64_t)&data;
+
+	reg.id = ARM64_CORE_REG(regs.pstate);
+	kvm_ioctl(vcpufd, KVM_GET_ONE_REG, &reg);
+
+	data |= PSR_F_BIT;
+
+	kvm_ioctl(vcpufd, KVM_SET_ONE_REG, &reg);
+}
+
+/* Enable guest fiqs */
+void unmask_fiqs(void) {
+	struct kvm_one_reg reg;
+	uint64_t data;
+	reg.addr = (uint64_t)&data;
+
+	reg.id = ARM64_CORE_REG(regs.pstate);
+	kvm_ioctl(vcpufd, KVM_GET_ONE_REG, &reg);
+
+	data &= ~PSR_F_BIT;
+
+	kvm_ioctl(vcpufd, KVM_SET_ONE_REG, &reg);
+}
+
 void init_kvm_arch(void)
 {
 	guest_mem = mmap(NULL, guest_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -368,6 +573,15 @@ void init_kvm_arch(void)
             err(1, "the support of KVM_CAP_IRQFD is curently required");
 }
 
+int uhyve_aarch64_find_pt_root(char *binary_path) {
+		int ret = find_symbol_addr(PT_ROOT_SYMNAME, binary_path, &pt_root);
+		if(ret)
+			errx(-1, "Cannot find page table root symbol address: %d\n", ret);
+		if(verbose)
+			printf("Found page table root at 0x%llx\n", pt_root);
+		fflush(stdout);
+}
+
 int load_kernel(uint8_t* mem, char* path)
 {
 	Elf64_Ehdr hdr;
@@ -430,6 +644,13 @@ int load_kernel(uint8_t* mem, char* path)
 
 		//fprintf(stderr, "Kernel location 0x%zx, file size 0x%zx, memory size 0x%zx\n", paddr, filesz, memsz);
 
+		/* if it's not the TLS segment, then it is the only other segment: the
+		 * kernel, which is what we want here */
+		if (phdr[ph_i].p_type != PT_TLS) {
+			static_mem_size = memsz;
+			static_mem_start = paddr;
+		}
+
 		ret = pread_in_full(fd, mem+paddr-GUEST_OFFSET, filesz, offset);
 		if (ret < 0)
 			goto out;
@@ -484,10 +705,26 @@ int load_kernel(uint8_t* mem, char* path)
 			}
 
 			*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0xbc)) = (uint64_t) guest_mem;
+			// TODO FIXUP OFFSETS!!
 			if (verbose)
 				*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x174)) = (uint32_t) UHYVE_UART_PORT;
 		}
-		*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0x158)) = paddr + memsz - pstart; // total kernel size
+
+		/* Pierre: migration stuff
+		 * Set the address of the atomic migration flag */
+		set_migrate_flag_addr((uint64_t) (mem+paddr-GUEST_OFFSET + 0x174));
+
+		/* Getod value so that the guest has access to an abolute clock */
+		*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0x184)) = boot_gtod;
+
+		/* Set the resume flag accordingly */
+		*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x17C)) = 0;
+		char * str = getenv("HERMIT_MIGRATE_RESUME");
+		if(str)
+			if(atoi(str))
+				*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x17C)) = 1;
+
+		*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0x158)) += memsz; // total kernel size
 	}
 
 	ret = 0;

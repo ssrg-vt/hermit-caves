@@ -38,6 +38,10 @@
 #define UHYVE_PORT_EXIT			0x540
 #define UHYVE_PORT_LSEEK		0x580
 
+#define UHYVE_PORT_MIGRATE		0x509
+#define UHYVE_PORT_UNLINK		0x510
+#define UHYVE_PORT_PFAULT		0x511
+
 // Networkports
 #define UHYVE_PORT_NETINFO              0x600
 #define UHYVE_PORT_NETWRITE             0x640
@@ -105,5 +109,7 @@ void init_kvm_arch(void);
 int load_kernel(uint8_t* mem, char* path);
 size_t determine_dest_offset(size_t src_addr);
 void determine_dirty_pages(void (*save_page_handler)(void*, size_t, void*, size_t));
+
+unsigned long long boot_gtod;
 
 #endif

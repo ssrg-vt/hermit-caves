@@ -174,7 +174,7 @@ static int wait_for_connect(void)
 		return -1;
 	}
 
-	if (listen(listen_socket_fd, 0) == -1) {
+	if (listen(listen_socket_fd, 128) == -1) {
 		err(1, "listen failed");
 		return -1;
 	}

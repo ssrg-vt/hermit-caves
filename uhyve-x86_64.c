@@ -198,7 +198,6 @@
 #define IOAPIC_DEFAULT_BASE	0xfec00000
 #define APIC_DEFAULT_BASE	0xfee00000
 
-
 static bool cap_tsc_deadline = false;
 static bool cap_irqchip = false;
 static bool cap_adjust_clock_stable = false;

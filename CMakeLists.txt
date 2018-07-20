@@ -5,16 +5,19 @@ include(CheckIncludeFiles)
 include(../cmake/HermitCore-Paths.cmake)
 
 option(ENABLE_RDMA_MIGRATION "Migration support via RDMA" OFF)
-
+set(MAX_ARGC_ENVC 128 CACHE STRING "Maximum size of argc/envc forwarded to the
+	guest (in items)")
 
 add_compile_options(-std=c99)
 
 list(APPEND LIBS "-pthread")
+list(APPEND LIBS "-lrt")
 set(SRC proxy.c
 	utils.c
 	uhyve.c
 	uhyve-net.c
 	uhyve-migration.c
+	uhyve-het-migration.c
 	uhyve-x86_64.c
 	uhyve-aarch64.c
 	uhyve-gdb-x86_64.c

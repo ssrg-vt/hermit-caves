@@ -29,12 +29,32 @@
 #include <stdint.h>
 #include <inttypes.h>
 
- struct uhyve_gdb_regs {
-     uint64_t regs[31];
-     uint64_t lr;
-     uint64_t pc;
-     uint64_t pstate;
-     uint64_t sp;
- };
+struct uhyve_gdb_regs {
+    uint64_t rax;
+    uint64_t rbx;
+    uint64_t rcx;
+    uint64_t rdx;
+    uint64_t rsi;
+    uint64_t rdi;
+    uint64_t rbp;
+    uint64_t rsp;
+    uint64_t r8;
+    uint64_t r9;
+    uint64_t r10;
+    uint64_t r11;
+    uint64_t r12;
+    uint64_t r13;
+    uint64_t r14;
+    uint64_t r15;
+    uint64_t rip;
+    uint64_t eflags;
+
+    uint32_t cs;
+    uint32_t ss;
+    uint32_t ds;
+    uint32_t es;
+    uint32_t fs;
+    uint32_t gs;
+};
 
 #endif /* UHYVE_GDB_AARCH64_H */

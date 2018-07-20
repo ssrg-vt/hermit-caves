@@ -67,8 +67,9 @@
 #include "uhyve-syscalls.h"
 #include "uhyve-migration.h"
 #include "uhyve-net.h"
-#include "uhyve-gdb.h"
+#include "uhyve-het-migration.h"
 #include "proxy.h"
+#include "uhyve-gdb.h"
 
 static bool restart = false;
 static bool migration = false;
@@ -105,6 +106,8 @@ char **uhyve_envp = NULL;
 
 vcpu_state_t *vcpu_thread_states = NULL;
 static sigset_t   signal_mask;
+
+extern int uhyve_aarch64_find_pt_root(char *binary_path);
 
 typedef struct {
 	int argc;
@@ -283,8 +286,12 @@ static int vcpu_loop(void)
 
 	/* init uhyve gdb support */
 	if (uhyve_gdb_enabled) {
-		if (cpuid == 0)
+		if (cpuid == 0) {
+#ifdef __aarch64__
+			uhyve_aarch64_find_pt_root(program_name);
+#endif
 			uhyve_gdb_init(vcpufd);
+		}
 
 		pthread_barrier_wait(&barrier);
 	}
@@ -472,6 +479,24 @@ static int vcpu_loop(void)
 					break;
 				}
 
+			case UHYVE_PORT_MIGRATE: {
+				printf("Uhyve received migration request!\n");
+				exit(0);
+				break;
+
+				}
+
+			case UHYVE_PORT_PFAULT: {
+				char addr2line_call[128];
+				uhyve_pfault_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
+
+				printf("Guest page fault @0x%x (PC @0x%x)\n", arg->addr, arg->rip);
+				fflush(stdout);
+				sprintf(addr2line_call, "addr2line -a %x -e %s\n", arg->rip, guest_path);
+				system(addr2line_call);
+				break;
+			}
+
 			default:
 				err(1, "KVM: unhandled KVM_EXIT_IO / KVM_EXIT_MMIO at port 0x%lx\n", port);
 				break;
@@ -498,8 +523,12 @@ static int vcpu_loop(void)
 			if (uhyve_gdb_enabled) {
 				uhyve_gdb_handle_exception(vcpufd, GDB_SIGNAL_TRAP);
 				break;
-			} else print_registers();
-			exit(EXIT_FAILURE);
+			} else {
+				printf("Guest trapped due to debug exception but no debugger "
+						"connected\n");
+				print_registers();
+				/* Fall through the unhandled exit path */
+			}
 
 		default:
 			fprintf(stderr, "KVM: unhandled exit: exit_reason = 0x%x\n", run->exit_reason);
