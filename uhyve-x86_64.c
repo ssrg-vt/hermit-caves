@@ -1239,6 +1239,20 @@ int load_kernel(uint8_t* mem, char* path)
 
 			*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0xbc)) = (uint64_t)guest_mem;
 		}
+
+		/* Pierre: migration stuff
+		 * Set the address of the atomic migration flag */
+		set_migrate_flag_addr((uint64_t) (mem+paddr-GUEST_OFFSET + 0xC4));
+
+		/* Gtod value so that the guest has access to an absolute clock */
+		*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0xCC)) = boot_gtod;
+
+		/* Set the resume flag accordingly */
+		*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0xC8)) = 0;
+		char *str = getenv("HERMIT_MIGRATE_RESUME");
+		if(str && atoi(str))
+			*((uint32_t *) (mem+paddr-GUEST_OFFSET + 0xC8)) = 1;
+
 		*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0x38)) = paddr + memsz - pstart; // total kernel size
 	}
 

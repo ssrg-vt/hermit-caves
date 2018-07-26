@@ -58,7 +58,7 @@ if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
 		DESTINATION aarch64-hermit/bin)
 else()
 	install(TARGETS proxy
-		DESTINATION bin)
+		DESTINATION x86_64-host/bin)
 endif()
 
 

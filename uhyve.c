@@ -736,14 +736,21 @@ int uhyve_init(char *path)
 
 int uhyve_loop(int argc, char **argv)
 {
-	const char* hermit_check = getenv("HERMIT_CHECKPOINT");
-	const char* hermit_mig_support = getenv("HERMIT_MIGRATION_SUPPORT");
-	const char* hermit_mig_type = getenv("HERMIT_MIGRATION_TYPE");
-	const char* hermit_debug = getenv("HERMIT_DEBUG");
+	const char *hermit_check = getenv("HERMIT_CHECKPOINT");
+	const char *hermit_mig_support = getenv("HERMIT_MIGRATION_SUPPORT");
+	const char *hermit_mig_type = getenv("HERMIT_MIGRATION_TYPE");
+	const char *hermit_debug = getenv("HERMIT_DEBUG");
+	const char *hermit_migtest = getenv("HERMIT_MIGTEST");
 	int ts = 0, i = 0;
 
 	if (hermit_debug && (atoi(hermit_debug) != 0))
 		uhyve_gdb_enabled = true;
+
+	if(hermit_migtest) {
+		int timeout = atoi(hermit_migtest);
+		if(timeout > 0)
+			test_migration(timeout);
+	}
 
 	/* argv[0] is 'proxy', do not count it */
 	uhyve_argc = argc-1;
@@ -754,12 +761,12 @@ int uhyve_loop(int argc, char **argv)
 	uhyve_envc = i;
 
 	if (uhyve_argc > MAX_ARGC_ENVC) {
-		fprintf(stderr, "uhyve downsiize envc from %d to %d\n", uhyve_argc, MAX_ARGC_ENVC);
+		fprintf(stderr, "uhyve downsize envc from %d to %d\n", uhyve_argc, MAX_ARGC_ENVC);
 		uhyve_argc = MAX_ARGC_ENVC;
 	}
 
 	if (uhyve_envc > MAX_ARGC_ENVC-1) {
-		fprintf(stderr, "uhyve downsiize envc from %d to %d\n", uhyve_envc, MAX_ARGC_ENVC-1);
+		fprintf(stderr, "uhyve downsize envc from %d to %d\n", uhyve_envc, MAX_ARGC_ENVC-1);
 		uhyve_envc = MAX_ARGC_ENVC-1;
 	}
 
