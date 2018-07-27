@@ -1125,7 +1125,7 @@ int load_kernel(uint8_t* mem, char* path)
 {
 	Elf64_Ehdr hdr;
 	Elf64_Phdr *phdr = NULL;
-	size_t buflen;
+	size_t buflen, tls_size;
 	size_t pstart = 0;
 	int fd, ret;
 
@@ -1177,6 +1177,9 @@ int load_kernel(uint8_t* mem, char* path)
 		size_t offset = phdr[ph_i].p_offset;
 		size_t filesz = phdr[ph_i].p_filesz;
 		size_t memsz = phdr[ph_i].p_memsz;
+
+		if (phdr[ph_i].p_type == PT_TLS)
+			tls_size = memsz;
 
 		if (phdr[ph_i].p_type != PT_LOAD)
 			continue;
@@ -1255,6 +1258,11 @@ int load_kernel(uint8_t* mem, char* path)
 
 		*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0x38)) = paddr + memsz - pstart; // total kernel size
 	}
+
+	/* There is a bug in gold where the markers we use to compute tls size
+	 * are not given tthe right values, so we forward the tls size to the
+	 * guest from here */
+	*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0xD4)) = tls_size;
 
 	ret = 0;
 
