@@ -18,7 +18,6 @@ if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
 endif()
 
 list(APPEND LIBS "-pthread")
-list(APPEND LIBS "-lrt")
 set(SRC proxy.c
 	utils.c
 	uhyve.c
@@ -51,6 +50,7 @@ add_executable(proxy ${SRC})
 target_compile_options(proxy PUBLIC ${LIBS})
 target_compile_options(proxy PUBLIC -DMAX_ARGC_ENVC=${MAX_ARGC_ENVC})
 target_link_libraries(proxy ${LIBS})
+target_link_libraries(proxy -lrt)
 
 
 if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
