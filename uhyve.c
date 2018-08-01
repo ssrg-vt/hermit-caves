@@ -498,6 +498,7 @@ static int vcpu_loop(void)
 			}
 
 			default:
+				print_registers();
 				err(1, "KVM: unhandled KVM_EXIT_IO / KVM_EXIT_MMIO at port 0x%lx\n", port);
 				break;
 			}
