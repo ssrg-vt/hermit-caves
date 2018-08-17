@@ -8,6 +8,9 @@
 #include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
+#include <string.h>
+
+#include "uhyve-het-migration-ondemand.h"
 
 /* Hack to avoid two definitions of chkpt_metadata_t (and the default
  * checkpoint filenames). it's not ideal, maybe there is a better solution */
@@ -20,7 +23,7 @@ typedef unsigned int 		tid_t;
  * host and target */
 #define HEAP_PROVIDER_FILE	0
 #define HEAP_PROVIDER_NET	1
-#define HEAP_PROVIDER		HEAP_PROVIDER_FILE
+#define HEAP_PROVIDER		HEAP_PROVIDER_NET
 
 #define PAGE_SIZE_HEAP		4096
 
@@ -102,6 +105,15 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr) {
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr) {
 	return -ENOSYS;
+}
+
+int rmem_memory_heap_net (uint64_t vaddr, uint64_t paddr) {
+	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
+	uint64_t heap_offset = page_floor - md.heap_start;
+	char buffer[PAGE_SIZE_HEAP];
+	send_page_request(HEAP, heap_offset, buffer);
+	memcpy(guest_mem + paddr, buffer, PAGE_SIZE_HEAP);
+	return 0;
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr) {
