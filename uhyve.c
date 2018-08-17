@@ -70,6 +70,7 @@
 #include "uhyve-het-migration.h"
 #include "proxy.h"
 #include "uhyve-gdb.h"
+#include "uhyve-remote-mem.h"
 
 static bool restart = false;
 static bool migration = false;
@@ -81,6 +82,8 @@ extern bool verbose;
 
 static char* guest_path = NULL;
 static bool uhyve_gdb_enabled = false;
+static bool migrate_resume = false; /* are we resuming from migration */
+
 size_t guest_size = 0x20000000ULL;
 bool full_checkpoint = false;
 pthread_barrier_t barrier;
@@ -491,6 +494,19 @@ static int vcpu_loop(void)
 				uhyve_pfault_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
 
 				printf("Guest page fault @0x%x (PC @0x%x)\n", arg->addr, arg->rip);
+
+                                if(migrate_resume && arg->type == PFAULT_HEAP) {
+                                        /* On-demand heap migration*/
+                                        if(rmem_heap(arg->vaddr, arg->paddr))
+                                                printf("Could not handle remote heap request @0x%x\n",
+                                                                arg->vaddr);
+                                        else
+                                                arg->success = 1;
+ 
+                                        break;
+                                }
+ 
+                                printf("Guest page fault @0x%x (RIP @0x%x)\n", arg->vaddr, arg->rip);
 				fflush(stdout);
 				sprintf(addr2line_call, "addr2line -a %x -e %s\n", arg->rip, guest_path);
 				system(addr2line_call);
@@ -627,6 +643,18 @@ int uhyve_init(char *path)
 {
 	FILE *f = NULL;
 	guest_path = path;
+
+        const char *hermit_migrate_resume = getenv("HERMIT_MIGRATE_RESUME");
+        if(hermit_migrate_resume) {
+                if(atoi(hermit_migrate_resume) != 0)
+                        migrate_resume = true;
+        }
+
+        /* Initialize remote memory access if needed */
+        if(migrate_resume) {
+                int ret = rmem_init();
+                if(ret) return ret;
+        }
 
 	signal(SIGTERM, sigterm_handler);
 
