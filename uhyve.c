@@ -493,8 +493,6 @@ static int vcpu_loop(void)
 				char addr2line_call[128];
 				uhyve_pfault_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
 
-				printf("Guest page fault @0x%x (PC @0x%x)\n", arg->addr, arg->rip);
-
                                 if(migrate_resume && arg->type == PFAULT_HEAP) {
                                         /* On-demand heap migration*/
                                         if(rmem_heap(arg->vaddr, arg->paddr))
