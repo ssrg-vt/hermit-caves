@@ -1256,6 +1256,14 @@ int load_kernel(uint8_t* mem, char* path)
 		if(str && atoi(str))
 			*((uint32_t *) (mem+paddr-GUEST_OFFSET + 0xC8)) = 1;
 
+		/* Set the popcorn node id */
+		str = getenv("HERMIT_NODE_ID");
+		if(str)
+			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0xDC)) = atoi(str);
+		else
+			fprintf(stderr, "Warning: no node_id specified, defaulting to 0\n");
+
+
 		*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0x38)) = paddr + memsz - pstart; // total kernel size
 	}
 
