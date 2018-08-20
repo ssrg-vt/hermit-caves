@@ -31,6 +31,7 @@
 #define PAGE_SIZE 	4096
 #define NI_MAXHOST 	1025
 
+int count = 0;
 /*------------------------------ Server Side Code----------------------------*/
 
 void print_server_ip ()
@@ -243,6 +244,7 @@ int on_demand_page_migration()
 			ret = -1;
 			goto clean;
 		}
+		close(ps->socket);
 	}
 
 clean:
@@ -250,6 +252,7 @@ clean:
 		close(bss_fd);
 	if(heap_fd != -1)
 		close(heap_fd);
+	close(ps->socket);
 
 	free(ps->recv_packet);
 	free(ps);
@@ -270,6 +273,7 @@ int connect_to_page_response_server()
         	printf("\n Socket creation error \n");
         	return -1;
     	}
+	count++;
 
     	memset(&serv_addr, '0', sizeof(serv_addr));
 
@@ -280,12 +284,14 @@ int connect_to_page_response_server()
     	if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)
     	{
         	printf("\nInvalid address/ Address not supported \n");
+		close(sock);
         	return -1;
     	}
 
     	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     	{
-        	printf("\nConnection Failed \n");
+        	perror("\nConnection Failed \n");
+		close(sock);
         	return -1;
     	}
 
@@ -305,6 +311,9 @@ int send_page_request(section type, uint64_t address, char *buffer)
 
 	send(sock , (const void*)send_packet , sizeof(struct packet) , 0 );
     	valread = read(sock ,buffer, PAGE_SIZE);
+	
+	free(send_packet);
+	close(sock);
 
 	return 0;
 }

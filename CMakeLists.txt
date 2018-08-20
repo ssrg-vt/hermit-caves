@@ -11,7 +11,7 @@ if(NOT DEFINED MAX_ARGC_ENVC)
 	the	guest (in items)")
 endif()
 
-add_compile_options(-std=c99 -D_POSIX_C_SOURCE=200112L)
+add_compile_options(-std=c99 -g -D_POSIX_C_SOURCE=200112L)
 
 if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
 	SET(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)

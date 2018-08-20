@@ -58,16 +58,31 @@ static int rmem_heap_file_init(const char *mdata_file_path,
 	return 0;
 }
 
-/* TODO */
-static int rmem_heap_net_init(void) {
-	return -ENOSYS;
+static int rmem_heap_net_init(const char *mdata_file_path) {
+
+	int mdata_fd;
+
+	mdata_fd = open(mdata_file_path, O_RDONLY, 0);
+	if(mdata_fd == -1) {
+		perror("opening mdata file");
+		return -1;
+	}
+
+	if(read(mdata_fd, &md, sizeof(chkpt_metadata_t)) !=
+			sizeof(chkpt_metadata_t)) {
+		perror("reading mdata");
+		return -1;
+	}
+
+	close(mdata_fd);
+	return 0;
 }
 
 int rmem_init(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_init(CHKPT_MDATA_FILE, CHKPT_HEAP_FILE);
 #else
-	return rmem_heap_net_init();
+	return rmem_heap_net_init(CHKPT_MDATA_FILE);
 #endif
 }
 
@@ -78,7 +93,7 @@ static int rmem_heap_file_end(void) {
 
 /* TODO */
 static int rmem_heap_net_end(void) {
-	return -ENOSYS;
+	return 0;//-ENOSYS;
 }
 
 int rmem_end(void) {
@@ -108,11 +123,13 @@ int rmem_heap_net(uint64_t vaddr, uint64_t paddr) {
 }
 
 int rmem_memory_heap_net (uint64_t vaddr, uint64_t paddr) {
+	char buffer[PAGE_SIZE_HEAP];
 	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
 	uint64_t heap_offset = page_floor - md.heap_start;
-	char buffer[PAGE_SIZE_HEAP];
+
 	send_page_request(HEAP, heap_offset, buffer);
 	memcpy(guest_mem + paddr, buffer, PAGE_SIZE_HEAP);
+
 	return 0;
 }
 
