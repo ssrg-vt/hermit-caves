@@ -7,6 +7,8 @@
 
 #include "uhyve-syscalls.h"
 
+int client_socket;
+
 typedef enum 
 {
 	HEAP, 
@@ -17,8 +19,7 @@ typedef enum
 struct server_info
 {
 	int fd;
-	int addrlen;
-	struct sockaddr_in address;
+	int socket;
 };
 
 struct packet
@@ -34,6 +35,7 @@ struct packet_socket
 };
 
 
-int on_demand_page_migration();
+int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size);
 int send_page_request(section type, uint64_t address, char *buffer);
+int connect_to_page_response_server();
 #endif

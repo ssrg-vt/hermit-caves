@@ -484,7 +484,8 @@ static int vcpu_loop(void)
 
 			case UHYVE_PORT_MIGRATE: {
 				printf("Uhyve received migration request!\n");
-				on_demand_page_migration();
+				uhyve_migration_t *arg = (uhyve_migration_t *)(guest_mem + raddr);
+				on_demand_page_migration(arg->heap_size, arg->bss_size);
 
 				exit(0);
 				break;

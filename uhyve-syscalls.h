@@ -65,4 +65,9 @@ typedef struct {
 	int success;
 } __attribute__ ((packed)) uhyve_pfault_t;
 
+typedef struct {
+	uint64_t heap_size;
+        uint64_t bss_size;
+} __attribute__ ((packed)) uhyve_migration_t;
+
 #endif // UHYVE_SYSCALLS_H

@@ -31,7 +31,7 @@
 #define PAGE_SIZE 	4096
 #define NI_MAXHOST 	1025
 
-int count = 0;
+extern int client_socket;
 /*------------------------------ Server Side Code----------------------------*/
 
 void print_server_ip ()
@@ -107,9 +107,17 @@ void print_server_ip ()
 struct server_info* setup_page_response_server()
 {
     	int opt = 1;
-	struct server_info *server = (struct server_info*)malloc(sizeof(struct server_info));
-    
-	server->addrlen = sizeof(server->address);
+	int addrlen;
+	struct sockaddr_in address;    
+
+	struct server_info* server = (struct server_info*)malloc(sizeof(struct server_info));
+	if(!server)
+	{
+		perror("Malloc Failed");
+		exit(EXIT_FAILURE);
+	}
+
+	addrlen = sizeof(address);
 
     	// Creating socket file descriptor
     	if ((server->fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
@@ -125,27 +133,17 @@ struct server_info* setup_page_response_server()
         	perror("Setsockopt Failed");
         	exit(EXIT_FAILURE);
     	}
-    	server->address.sin_family = AF_INET;
-    	server->address.sin_addr.s_addr = INADDR_ANY;
-    	server->address.sin_port = htons( PORT );
+    	address.sin_family = AF_INET;
+    	address.sin_addr.s_addr = INADDR_ANY;
+    	address.sin_port = htons( PORT );
 
     	// Forcefully attaching socket to the port 8080
-    	if (bind(server->fd, (struct sockaddr *)&server->address,
-                                 sizeof(server->address))<0)
+    	if (bind(server->fd, (struct sockaddr *)&address,
+                                 sizeof(address))<0)
     	{
         	perror("Bind Failed");
         	exit(EXIT_FAILURE);
     	}
-
-        return server;
-}
-
-struct packet_socket* receive_page_request(struct server_info *server)
-{
-    	char buffer[PAGE_SIZE] = {0};
-	int valread;
-	struct packet_socket *ps = (struct packet_socket*)malloc(sizeof(struct packet_socket));
-	ps->recv_packet = (struct packet*)malloc(sizeof(struct packet));
 
 	// Listen for connection request
     	if (listen(server->fd, 3) < 0)
@@ -155,18 +153,33 @@ struct packet_socket* receive_page_request(struct server_info *server)
        	}
 
 	// Accept connection request
-       	if ((ps->socket = accept(server->fd, (struct sockaddr *)&server->address,
-                       	       (socklen_t*)&server->addrlen))<0)
+       	if ((server->socket = accept(server->fd, (struct sockaddr *)&address,
+                       	       (socklen_t*)&addrlen))<0)
        	{
                	perror("Accept Failed");
                	exit(EXIT_FAILURE);
        	}
 	
-	// Read received data
-       	valread = read(ps->socket , buffer, PAGE_SIZE);
-	ps->recv_packet = (struct packet*)buffer;
+        return server;
+}
 
-	return ps;
+struct packet* receive_page_request(struct server_info *server)
+{
+    	char buffer[PAGE_SIZE] = {0};
+	int valread;
+
+	struct packet* recv_packet = (struct packet*)malloc(sizeof(struct packet));
+	if(!recv_packet)
+	{
+		perror("Malloc Failed");
+		exit(EXIT_FAILURE);
+	}
+
+	// Read received data
+       	valread = read(server->socket , buffer, PAGE_SIZE);
+	recv_packet = (struct packet*)buffer;
+
+	return recv_packet;
 }
 
 int send_page_response(int sock, int fd, uint64_t offset)
@@ -183,11 +196,11 @@ int send_page_response(int sock, int fd, uint64_t offset)
 	return 0;			
 }
 
-int on_demand_page_migration()
+int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 {
 	const char* file_name;
 	section type;
-	struct packet_socket *ps;
+	struct packet *recv_packet = NULL;
 	int heap_fd = -1, bss_fd = -1, fd;
 	int ret;
 
@@ -196,8 +209,8 @@ int on_demand_page_migration()
 
 	while(1)
 	{
-		ps = receive_page_request(server);
-		switch(ps->recv_packet->type)
+		recv_packet = receive_page_request(server);
+		switch(recv_packet->type)
 		{
 			case BSS:
 				if(bss_fd == -1)
@@ -211,6 +224,7 @@ int on_demand_page_migration()
 					}
 				}
 				fd = bss_fd;
+				bss_size -= PAGE_SIZE;
 				break;
 
 			case HEAP:
@@ -225,12 +239,8 @@ int on_demand_page_migration()
 					}
 				}
 				fd = heap_fd;
+				heap_size -= PAGE_SIZE;
 				break;
-
-			case CLOSE:
-				printf("Server Close request received from Client.\n");
-				ret = 0;
-				goto clean;
 
 			default:
 				fprintf(stderr, "Unsupported Request Type. Closing server.\n");
@@ -238,13 +248,21 @@ int on_demand_page_migration()
 				goto clean;
 		}
 
-		if(send_page_response(ps->socket, fd, ps->recv_packet->address) == -1)
+		if(send_page_response(server->socket, fd, recv_packet->address) == -1)
 		{
 			fprintf(stderr, "Read error Closing the Server");
 			ret = -1;
 			goto clean;
 		}
-		close(ps->socket);
+
+		//free(recv_packet);
+
+		if(heap_size <= 0)// && bss_size <=0)
+		{
+			printf("Closing Server\n");
+			goto clean;
+		}
+		else printf("heap size = %lu\n", heap_size);
 	}
 
 clean:
@@ -252,10 +270,8 @@ clean:
 		close(bss_fd);
 	if(heap_fd != -1)
 		close(heap_fd);
-	close(ps->socket);
-
-	free(ps->recv_packet);
-	free(ps);
+	close(server->fd);
+	close(server->socket);
 	free(server);
 
 	return ret;
@@ -270,10 +286,9 @@ int connect_to_page_response_server()
     	struct sockaddr_in serv_addr;
     	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     	{
-        	printf("\n Socket creation error \n");
+        	perror("Socket creation error\n");
         	return -1;
     	}
-	count++;
 
     	memset(&serv_addr, '0', sizeof(serv_addr));
 
@@ -283,14 +298,14 @@ int connect_to_page_response_server()
     	// Convert IPv4 and IPv6 addresses from text to binary form
     	if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)
     	{
-        	printf("\nInvalid address/ Address not supported \n");
+        	perror("Invalid address/ Address not supported\n");
 		close(sock);
         	return -1;
     	}
 
     	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     	{
-        	perror("\nConnection Failed \n");
+        	perror("Connection Failed\n");
 		close(sock);
         	return -1;
     	}
@@ -300,20 +315,16 @@ int connect_to_page_response_server()
 
 int send_page_request(section type, uint64_t address, char *buffer)
 {
-	int valread, sock;
+	int valread;
 	
-	if((sock = connect_to_page_response_server()) == -1)
-		return -1;
-
 	struct packet* send_packet = (struct packet*)malloc(sizeof(struct packet));
 	send_packet->type = type;
 	send_packet->address = address;
 
-	send(sock , (const void*)send_packet , sizeof(struct packet) , 0 );
-    	valread = read(sock ,buffer, PAGE_SIZE);
+	send(client_socket , (const void*)send_packet , sizeof(struct packet) , 0 );
+    	valread = read(client_socket ,buffer, PAGE_SIZE);
 	
 	free(send_packet);
-	close(sock);
 
 	return 0;
 }
