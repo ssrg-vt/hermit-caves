@@ -30,6 +30,7 @@ typedef unsigned int 		tid_t;
 static int heap_file_fd;
 static chkpt_metadata_t md;
 extern uint8_t* guest_mem;
+extern int client_socket;
 
 static int rmem_heap_file_init(const char *mdata_file_path,
 		const char *heap_file_path) {
@@ -75,6 +76,7 @@ static int rmem_heap_net_init(const char *mdata_file_path) {
 	}
 
 	close(mdata_fd);
+
 	return 0;
 }
 
@@ -82,6 +84,9 @@ int rmem_init(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_init(CHKPT_MDATA_FILE, CHKPT_HEAP_FILE);
 #else
+	if((client_socket = connect_to_page_response_server()) == -1)
+		return -1;
+
 	return rmem_heap_net_init(CHKPT_MDATA_FILE);
 #endif
 }
@@ -93,6 +98,7 @@ static int rmem_heap_file_end(void) {
 
 /* TODO */
 static int rmem_heap_net_end(void) {
+	close(client_socket);
 	return 0;//-ENOSYS;
 }
 

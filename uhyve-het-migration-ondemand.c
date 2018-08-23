@@ -255,6 +255,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 			goto clean;
 		}
 
+		// TODO: Make it work
 		//free(recv_packet);
 
 		if(heap_size <= 0)// && bss_size <=0)
@@ -262,7 +263,6 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 			printf("Closing Server\n");
 			goto clean;
 		}
-		else printf("heap size = %lu\n", heap_size);
 	}
 
 clean:
