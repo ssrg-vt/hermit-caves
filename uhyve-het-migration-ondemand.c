@@ -15,6 +15,7 @@
 #include <ifaddrs.h>
 #include <math.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #include "uhyve-het-migration-ondemand.h"
 
@@ -26,12 +27,13 @@
 #define CHKPT_TLS_FILE		"tls.bin"
 #define CHKPT_FDS_FILE		"fds.bin"
 
-
-#define PORT		8080
 #define PAGE_SIZE 	4096
 #define NI_MAXHOST 	1025
 
 extern int client_socket;
+
+char run_server = 1;
+
 /*------------------------------ Server Side Code----------------------------*/
 
 void print_server_ip ()
@@ -135,7 +137,7 @@ struct server_info* setup_page_response_server()
     	}
     	address.sin_family = AF_INET;
     	address.sin_addr.s_addr = INADDR_ANY;
-    	address.sin_port = htons( PORT );
+    	address.sin_port = htons(ondemand_migration_port);
 
     	// Forcefully attaching socket to the port 8080
     	if (bind(server->fd, (struct sockaddr *)&address,
@@ -196,18 +198,26 @@ int send_page_response(int sock, int fd, uint64_t offset)
 	return 0;			
 }
 
+void handle_broken_pipe()
+{
+	run_server = 0;
+}
+
 int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 {
 	const char* file_name;
 	section type;
 	struct packet *recv_packet = NULL;
 	int heap_fd = -1, bss_fd = -1, fd;
-	int ret;
+	int ret = 0;
 
+	signal(SIGPIPE, handle_broken_pipe);
+	
 	struct server_info *server = setup_page_response_server();
 	print_server_ip();
-
-	while(1)
+	fflush(stdout);
+	
+	while(run_server)
 	{
 		recv_packet = receive_page_request(server);
 		switch(recv_packet->type)
@@ -259,13 +269,11 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 		//free(recv_packet);
 
 		if(heap_size <= 0)// && bss_size <=0)
-		{
-			printf("Closing Server\n");
-			goto clean;
-		}
+			break;
 	}
 
 clean:
+	printf("Closing Server\n");
 	if(bss_fd != -1)
 		close(bss_fd);
 	if(heap_fd != -1)
@@ -284,28 +292,36 @@ int connect_to_page_response_server()
 	struct sockaddr_in address;
     	int sock = 0, valread;
     	struct sockaddr_in serv_addr;
+
+	const char* server_ip = getenv("HERMIT_MIGRATE_SERVER");
+	if(!server_ip)
+	{
+		printf("Please provide with server ip\n");
+		return -1;
+	}
+
     	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
     	{
-        	perror("Socket creation error\n");
+        	perror("Socket creation error");
         	return -1;
     	}
 
     	memset(&serv_addr, '0', sizeof(serv_addr));
 
     	serv_addr.sin_family = AF_INET;
-    	serv_addr.sin_port = htons(PORT);
+    	serv_addr.sin_port = htons(ondemand_migration_port);
 
     	// Convert IPv4 and IPv6 addresses from text to binary form
-    	if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)
+    	if(inet_pton(AF_INET, server_ip, &serv_addr.sin_addr)<=0)
     	{
-        	perror("Invalid address/ Address not supported\n");
+        	perror("Invalid address/ Address not supported");
 		close(sock);
         	return -1;
     	}
 
     	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
     	{
-        	perror("Connection Failed\n");
+        	perror("Connection Failed");
 		close(sock);
         	return -1;
     	}

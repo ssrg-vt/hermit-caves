@@ -8,6 +8,7 @@
 #include "uhyve-syscalls.h"
 
 int client_socket;
+int ondemand_migration_port;
 
 typedef enum 
 {

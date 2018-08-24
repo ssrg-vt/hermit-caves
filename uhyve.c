@@ -110,6 +110,8 @@ char **uhyve_envp = NULL;
 vcpu_state_t *vcpu_thread_states = NULL;
 static sigset_t   signal_mask;
 
+extern int ondemand_migration_port;
+
 extern int uhyve_aarch64_find_pt_root(char *binary_path);
 
 typedef struct {
@@ -643,6 +645,13 @@ void sigterm_handler(int signum)
 int uhyve_init(char *path)
 {
 	FILE *f = NULL;
+
+	const char *hermit_ondemand_migration_port = getenv("HERMIT_MIGRATE_PORT");
+	if(hermit_ondemand_migration_port)
+		ondemand_migration_port = atoi(hermit_ondemand_migration_port); 
+	else
+		ondemand_migration_port = 8080; // default port for migration
+
 	guest_path = path;
 
         const char *hermit_migrate_resume = getenv("HERMIT_MIGRATE_RESUME");
