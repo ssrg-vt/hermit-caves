@@ -11,7 +11,7 @@ if(NOT DEFINED MAX_ARGC_ENVC)
 	the	guest (in items)")
 endif()
 
-add_compile_options(-std=c99)
+add_compile_options(-std=c99 -g -D_POSIX_C_SOURCE=200112L)
 
 if("${TARGET_ARCH}" STREQUAL "aarch64-hermit")
 	SET(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
@@ -28,6 +28,8 @@ set(SRC proxy.c
 	uhyve-aarch64.c
 	uhyve-gdb-x86_64.c
 	uhyve-gdb-aarch64.c
+	uhyve-remote-mem.c
+	uhyve-het-migration-ondemand.c
 )
 
 ### Optional migration via RDMA

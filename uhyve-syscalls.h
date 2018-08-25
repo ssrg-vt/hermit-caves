@@ -52,10 +52,22 @@ typedef struct {
 	int whence;
 } __attribute__((packed)) uhyve_lseek_t;
 
+typedef enum {
+       PFAULT_FATAL,
+       PFAULT_HEAP
+} pfault_type_t;
+
 typedef struct {
 	uint64_t rip;
-	uint64_t addr;
+        uint64_t vaddr;
+        uint64_t paddr;
+        pfault_type_t type;
 	int success;
 } __attribute__ ((packed)) uhyve_pfault_t;
+
+typedef struct {
+	uint64_t heap_size;
+        uint64_t bss_size;
+} __attribute__ ((packed)) uhyve_migration_t;
 
 #endif // UHYVE_SYSCALLS_H
