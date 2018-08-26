@@ -325,6 +325,7 @@ int connect_to_page_response_server()
 		close(sock);
         	return -1;
     	}
+	printf("Connected\n");
 
 	return sock;
 }
