@@ -28,6 +28,7 @@
 #define CHKPT_FDS_FILE		"fds.bin"
 
 #define PAGE_SIZE 	4096
+#define ONE_K		1024
 #define NI_MAXHOST 	1025
 
 extern int client_socket;
@@ -186,15 +187,16 @@ struct packet* receive_page_request(struct server_info *server)
 
 int send_page_response(int sock, int fd, uint64_t offset)
 {
-	char buffer[PAGE_SIZE];
+	char buffer[ONE_K];
 
-	if(pread(fd, buffer, PAGE_SIZE, offset) != PAGE_SIZE)
+	if(pread(fd, buffer, ONE_K, offset) != ONE_K)
 	{
 		fprintf(stderr, "Cannot read file at offset 0x%x\n", offset);
 		return -1;
 	}
 
-	send(sock, buffer, PAGE_SIZE, 0 );
+	send(sock, (void*)buffer, ONE_K, 0 );
+
 	return 0;			
 }
 
@@ -249,7 +251,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 					}
 				}
 				fd = heap_fd;
-				heap_size -= PAGE_SIZE;
+				heap_size -= ONE_K;//PAGE_SIZE;
 				break;
 
 			default:
@@ -325,21 +327,30 @@ int connect_to_page_response_server()
 		close(sock);
         	return -1;
     	}
-	printf("Connected\n");
 
 	return sock;
 }
 
 int send_page_request(section type, uint64_t address, char *buffer)
 {
-	int valread;
+	int valread, i;
 	
 	struct packet* send_packet = (struct packet*)malloc(sizeof(struct packet));
 	send_packet->type = type;
 	send_packet->address = address;
 
-	send(client_socket , (const void*)send_packet , sizeof(struct packet) , 0 );
-    	valread = read(client_socket ,buffer, PAGE_SIZE);
+	/* 
+	* Nasty temporary solution to the problem that, when we read 
+	* 4k data we get corrupted data in the middle. So to make a 4K 
+	* page, we read data in 4 chunks where each chunk is 1K.
+	*/
+
+	for(i=0; i<4; i++)
+	{
+		send(client_socket, (const void*)send_packet, sizeof(struct packet), 0);
+    		valread = read(client_socket ,(void*)(buffer+i*ONE_K), ONE_K);
+		send_packet->address += ONE_K;
+	}
 	
 	free(send_packet);
 

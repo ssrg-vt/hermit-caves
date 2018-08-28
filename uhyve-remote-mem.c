@@ -134,7 +134,7 @@ int rmem_memory_heap_net (uint64_t vaddr, uint64_t paddr) {
 	uint64_t heap_offset = page_floor - md.heap_start;
 
 	send_page_request(HEAP, heap_offset, buffer);
-	memcpy(guest_mem + paddr, buffer, PAGE_SIZE_HEAP);
+	memcpy(guest_mem + paddr, (const void*)buffer, PAGE_SIZE_HEAP);
 
 	return 0;
 }

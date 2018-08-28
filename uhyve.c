@@ -509,6 +509,7 @@ static int vcpu_loop(void)
                                         break;
                                 }
  
+				printf("migrate resume = %d, arg->type = %llu\n", migrate_resume, arg->type);
                                 printf("Guest page fault @0x%x (RIP @0x%x)\n", arg->vaddr, arg->rip);
 				fflush(stdout);
 				sprintf(addr2line_call, "addr2line -a %x -e %s\n", arg->rip, guest_path);
