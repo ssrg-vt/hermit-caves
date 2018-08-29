@@ -60,6 +60,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/eventfd.h>
+#include <sys/file.h>
 #include <linux/const.h>
 #include <linux/kvm.h>
 
@@ -111,6 +112,7 @@ vcpu_state_t *vcpu_thread_states = NULL;
 static sigset_t   signal_mask;
 
 extern int ondemand_migration_port;
+int flock_fd;
 
 extern int uhyve_aarch64_find_pt_root(char *binary_path);
 
@@ -487,6 +489,8 @@ static int vcpu_loop(void)
 			case UHYVE_PORT_MIGRATE: {
 				printf("Uhyve received migration request!\n");
 				uhyve_migration_t *arg = (uhyve_migration_t *)(guest_mem + raddr);
+				flock(flock_fd, LOCK_UN);
+				close(flock_fd);
 				on_demand_page_migration(arg->heap_size, arg->bss_size);
 
 				exit(0);
@@ -646,6 +650,19 @@ void sigterm_handler(int signum)
 int uhyve_init(char *path)
 {
 	FILE *f = NULL;
+
+	flock_fd = open(".lock", O_CREAT, S_IRWXU|S_IRWXO);
+	if(flock_fd == -1)
+	{
+		perror(".lock file creation failed");
+		return -1;
+	}
+
+	if(flock(flock_fd, LOCK_EX) == -1)
+	{
+		perror("Flock failed");
+		return -1;
+	}
 
 	const char *hermit_ondemand_migration_port = getenv("HERMIT_MIGRATE_PORT");
 	if(hermit_ondemand_migration_port)
