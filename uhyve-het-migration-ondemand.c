@@ -28,7 +28,6 @@
 #define CHKPT_FDS_FILE		"fds.bin"
 
 #define PAGE_SIZE 	4096
-#define ONE_K		1024
 #define NI_MAXHOST 	1025
 
 extern int client_socket;
@@ -187,15 +186,19 @@ struct packet* receive_page_request(struct server_info *server)
 
 int send_page_response(int sock, int fd, uint64_t offset)
 {
-	char buffer[ONE_K];
+	char buffer[PAGE_SIZE];
 
-	if(pread(fd, buffer, ONE_K, offset) != ONE_K)
+	if(pread(fd, buffer, PAGE_SIZE, offset) != PAGE_SIZE)
 	{
 		fprintf(stderr, "Cannot read file at offset 0x%x\n", offset);
 		return -1;
 	}
 
-	send(sock, (void*)buffer, ONE_K, 0 );
+	if(send(sock, (void*)buffer, PAGE_SIZE, 0 ) == -1)
+	{
+		perror("Page response send failed");
+		return -1;
+	}
 
 	return 0;			
 }
@@ -251,7 +254,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 					}
 				}
 				fd = heap_fd;
-				heap_size -= ONE_K;//PAGE_SIZE;
+				heap_size -= PAGE_SIZE;
 				break;
 
 			default:
@@ -262,7 +265,6 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 
 		if(send_page_response(server->socket, fd, recv_packet->address) == -1)
 		{
-			fprintf(stderr, "Read error Closing the Server");
 			ret = -1;
 			goto clean;
 		}
@@ -334,22 +336,28 @@ int connect_to_page_response_server()
 int send_page_request(section type, uint64_t address, char *buffer)
 {
 	int valread, i;
+	size_t size = 0;
 	
 	struct packet* send_packet = (struct packet*)malloc(sizeof(struct packet));
 	send_packet->type = type;
 	send_packet->address = address;
 
-	/* 
-	* Nasty temporary solution to the problem that, when we read 
-	* 4k data we get corrupted data in the middle. So to make a 4K 
-	* page, we read data in 4 chunks where each chunk is 1K.
-	*/
-
-	for(i=0; i<4; i++)
+	if(send(client_socket, (const void*)send_packet, sizeof(struct packet), 0) == -1)
 	{
-		send(client_socket, (const void*)send_packet, sizeof(struct packet), 0);
-    		valread = read(client_socket ,(void*)(buffer+i*ONE_K), ONE_K);
-		send_packet->address += ONE_K;
+		perror("Page request send failed.");
+		return -1;
+	}
+
+	while(size != PAGE_SIZE)
+	{
+    		valread = recv(client_socket ,(void*)(buffer+size), PAGE_SIZE-size, 0);
+		if(valread == -1)
+		{
+			perror("Page receive failed");
+			return -1;
+		}
+
+		size += valread;
 	}
 	
 	free(send_packet);
