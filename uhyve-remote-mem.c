@@ -13,9 +13,13 @@
 #include "uhyve-het-migration-ondemand.h"
 
 /* Hack to avoid two definitions of chkpt_metadata_t (and the default
- * checkpoint filenames). it's not ideal, maybe there is a better solution */
+ * checkpoint filenames). it's not ideal, maybe there is a better solution.
+ * Note that the order here is important, for example migration-chkpt.h needs
+ * some typedefs from migration-x86-regs.h */
 #define MAX_TASKS			32
 typedef unsigned int 		tid_t;
+#include "../include/hermit/migration-x86-regs.h"
+#include "../include/hermit/migration-aarch64-regs.h"
 #include "../include/hermit/migration-chkpt.h"
 
 /* For now we only support the 'file' remote heap provider, which involves
