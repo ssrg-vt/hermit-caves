@@ -4,8 +4,18 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* The different states a unikernel can take */
+typedef enum {
+	STATUS_NOT_RUNNING 	= 0,
+	STATUS_PULLING_PAGES,
+	STATUS_READY_FOR_MIGRATION,
+	STATUS_CHECKPOINTING,
+	STATUS_SERVING_REMOTE_PAGES
+} het_migration_status_t;
+
 void set_migrate_flag_addr(uint64_t addr);
 int register_migration_signal(void);
 int test_migration(int sec);
+int het_migration_set_status(het_migration_status_t status);
 
 #endif /* UHYVE_MIGRATION_H */
