@@ -218,7 +218,7 @@ clean:
 	return ret;
 }
 
-/*--------------------------------- Client Side Code ------------------------------------*/
+/*-------------------------- Client Side Code --------------------------------*/
 
 int connect_to_page_response_server()
 {

@@ -72,6 +72,7 @@
 #include "proxy.h"
 #include "uhyve-gdb.h"
 #include "uhyve-remote-mem.h"
+#include "uhyve-het-migration-ondemand.h"
 
 static bool restart = false;
 static bool migration = false;
@@ -487,12 +488,18 @@ static int vcpu_loop(void)
 				}
 
 			case UHYVE_PORT_MIGRATE: {
-				printf("Uhyve received migration request!\n");
 				uhyve_migration_t *arg = (uhyve_migration_t *)(guest_mem + raddr);
 				flock(flock_fd, LOCK_UN);
 				close(flock_fd);
-				on_demand_page_migration(arg->heap_size, arg->bss_size);
 
+				/* Switch to remote page server if needed */
+				char *str = getenv("HERMIT_MIGRATE_PORT");
+				if(str && atoi(str)) {
+					printf("Uhyve: switching to server mode\n");
+					on_demand_page_migration(arg->heap_size, arg->bss_size);
+				}
+
+				printf("Uhyve: exiting\n");
 				exit(0);
 				break;
 
@@ -667,23 +674,23 @@ int uhyve_init(char *path)
 
 	const char *hermit_ondemand_migration_port = getenv("HERMIT_MIGRATE_PORT");
 	if(hermit_ondemand_migration_port)
-		ondemand_migration_port = atoi(hermit_ondemand_migration_port); 
+		ondemand_migration_port = atoi(hermit_ondemand_migration_port);
 	else
 		ondemand_migration_port = 8080; // default port for migration
 
 	guest_path = path;
 
-        const char *hermit_migrate_resume = getenv("HERMIT_MIGRATE_RESUME");
-        if(hermit_migrate_resume) {
-                if(atoi(hermit_migrate_resume) != 0)
-                        migrate_resume = true;
-        }
+	const char *hermit_migrate_resume = getenv("HERMIT_MIGRATE_RESUME");
+	if(hermit_migrate_resume) {
+			if(atoi(hermit_migrate_resume) != 0)
+					migrate_resume = true;
+	}
 
-        /* Initialize remote memory access if needed */
-        if(migrate_resume) {
-                int ret = rmem_init();
-                if(ret) return ret;
-        }
+	/* Initialize remote memory access if needed */
+	if(migrate_resume) {
+			int ret = rmem_init();
+			if(ret) return ret;
+	}
 
 	signal(SIGTERM, sigterm_handler);
 

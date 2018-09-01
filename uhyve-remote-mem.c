@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "uhyve-het-migration-ondemand.h"
 
@@ -89,6 +90,11 @@ int rmem_init(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_init(CHKPT_MDATA_FILE, CHKPT_HEAP_FILE);
 #else
+
+	char *str = getenv("HERMIT_MIGRATE_SERVER");
+	if(!str || !atoi(str))
+		return 0;
+
 	if((client_socket = connect_to_page_response_server()) == -1)
 		return -1;
 
