@@ -129,16 +129,10 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr) {
 }
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr) {
-	return -ENOSYS;
-}
-
-int rmem_memory_heap_net (uint64_t vaddr, uint64_t paddr) {
-	char buffer[PAGE_SIZE_HEAP];
 	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
 	uint64_t heap_offset = page_floor - md.heap_start;
 
-	send_page_request(HEAP, heap_offset, buffer);
-	memcpy(guest_mem + paddr, (const void*)buffer, PAGE_SIZE_HEAP);
+	send_page_request(SECTION_HEAP, heap_offset, guest_mem+paddr);
 
 	return 0;
 }
@@ -147,6 +141,6 @@ int rmem_heap(uint64_t vaddr, uint64_t paddr) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file(vaddr, paddr);
 #else
-	return rmem_memory_heap_net(vaddr, paddr);
+	return rmem_heap_net(vaddr, paddr);
 #endif
 }

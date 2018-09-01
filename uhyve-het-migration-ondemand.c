@@ -1,4 +1,4 @@
-#define _XOPEN_SOURCE 500 /* for pread */
+#define _DEFAULT_SOURCE
 
 #include <unistd.h>
 #include <stdio.h>
@@ -16,6 +16,9 @@
 #include <math.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <err.h>
+#include <sys/mman.h>
+#include <sys/time.h>
 
 #include "uhyve-het-migration-ondemand.h"
 
@@ -33,228 +36,157 @@
 extern int client_socket;
 
 char run_server = 1;
+char *heap_ptr = NULL;
+char *bss_ptr = NULL;
 
-/*------------------------------ Server Side Code----------------------------*/
+/* Fully map a file in memory */
+int mmap_file(const char *filename, char **ptr) {
+	int fd;
+	uint64_t map_size;
 
-void print_server_ip ()
-{
-    	FILE *f;
-    	char line[100] , *p , *c;
+	fd = open(filename, O_RDONLY, 0x0);
+	if(fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s\n", CHKPT_HEAP_FILE);
 
-    	f = fopen("/proc/net/route" , "r");
-	if(f == NULL)
-	{
-		perror("/proc/net/route file read failed");
-        	exit(EXIT_FAILURE);
-	}
 
-    	while(fgets(line , 100 , f))
-    	{
-        	p = strtok(line , " \t");
-        	c = strtok(NULL , " \t");
+	map_size = lseek(fd, 0x0, SEEK_END);
 
-        	if(p!=NULL && c!=NULL)
-        	{
-            		if(strcmp(c , "00000000") == 0)
-            		{
-                		//printf("Default interface is : %s \n" , p);
-                		break;
-            		}
-        	}
-    	}
+	*ptr = mmap(NULL, map_size, PROT_READ, MAP_PRIVATE | MAP_POPULATE,
+			fd, 0x0);
+	if(*ptr == MAP_FAILED)
+		err(EXIT_FAILURE, "Cannot mmap %s\n", CHKPT_HEAP_FILE);
 
-    	//which family do we require , AF_INET or AF_INET6
-    	int fm = AF_INET;
-    	struct ifaddrs *ifaddr, *ifa;
-    	int family , s;
-    	char host[NI_MAXHOST];
-
-    	if (getifaddrs(&ifaddr) == -1)
-    	{
-        	perror("getifaddrs");
-        	exit(EXIT_FAILURE);
-    	}
-
-    	//Walk through linked list, maintaining head pointer so we can free list later
-    	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-    	{
-        	if (ifa->ifa_addr == NULL)
-            		continue;
-
-        	family = ifa->ifa_addr->sa_family;
-
-        	if(strcmp( ifa->ifa_name , p) == 0)
-        	{
-            		if (family == fm)
-            		{
-                		s = getnameinfo( ifa->ifa_addr, (family == AF_INET) ? 
-					sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6), 
-						host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
-
-                		if (s != 0)
-                		{
-                    			printf("getnameinfo() failed: %s\n", gai_strerror(s));
-                    			exit(EXIT_FAILURE);
-                		}
-
-                		printf("Server Running at Address: %s", host);
-            		}
-            		printf("\n");
-        	}
-    	}
-
-    freeifaddrs(ifaddr);
+	close(fd);
+	return 0;
 }
 
-struct server_info* setup_page_response_server()
-{
-    	int opt = 1;
-	int addrlen;
-	struct sockaddr_in address;    
+/* Unmap a _fully mapped_ file */
+int munmap_file(const char *filename, char *ptr) {
+	int fd;
+	uint64_t map_size;
 
-	struct server_info* server = (struct server_info*)malloc(sizeof(struct server_info));
+	fd = open(filename, O_RDONLY, 0x0);
+	if(fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s\n", CHKPT_HEAP_FILE);
+
+
+	map_size = lseek(fd, 0x0, SEEK_END);
+	munmap(ptr, map_size);
+
+	close(fd);
+	return 0;
+}
+
+struct server_info* setup_page_response_server() {
+	int opt = 1;
+	int addrlen;
+	struct sockaddr_in address;
+
+	struct server_info* server =
+		(struct server_info*)malloc(sizeof(struct server_info));
 	if(!server)
-	{
-		perror("Malloc Failed");
-		exit(EXIT_FAILURE);
-	}
+		err(EXIT_FAILURE, "Malloc Failed");
 
 	addrlen = sizeof(address);
 
-    	// Creating socket file descriptor
-    	if ((server->fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
-    	{
-        	perror("Socket Failed");
-        	exit(EXIT_FAILURE);
-    	}
+	// Creating socket file descriptor
+	if ((server->fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+		err(EXIT_FAILURE, "Socket Failed");
 
-    	// Forcefully attaching socket to the port 8080
-    	if (setsockopt(server->fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
-                                                  &opt, sizeof(opt)))
-    	{
-        	perror("Setsockopt Failed");
-        	exit(EXIT_FAILURE);
-    	}
-    	address.sin_family = AF_INET;
-    	address.sin_addr.s_addr = INADDR_ANY;
-    	address.sin_port = htons(ondemand_migration_port);
+	// Forcefully attaching socket to the port 8080
+	if (setsockopt(server->fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
+			&opt, sizeof(opt)))
+		err(EXIT_FAILURE, "Setsockopt Failed");
 
-    	// Forcefully attaching socket to the port 8080
-    	if (bind(server->fd, (struct sockaddr *)&address,
-                                 sizeof(address))<0)
-    	{
-        	perror("Bind Failed");
-        	exit(EXIT_FAILURE);
-    	}
+	// Forcefully attaching socket to the port 8080
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = INADDR_ANY;
+	address.sin_port = htons(ondemand_migration_port);
+	if (bind(server->fd, (struct sockaddr *)&address,
+			sizeof(address))<0)
+		err(EXIT_FAILURE, "Bind Failed");
 
 	// Listen for connection request
-    	if (listen(server->fd, 3) < 0)
-       	{	
-               	perror("Listen Failed");
-               	exit(EXIT_FAILURE);
-       	}
+	if (listen(server->fd, 3) < 0)
+			err(EXIT_FAILURE, "Listen Failed");
+
+	printf("Remote page server listenning on port %d...\n",
+			ondemand_migration_port);
 
 	// Accept connection request
-       	if ((server->socket = accept(server->fd, (struct sockaddr *)&address,
-                       	       (socklen_t*)&addrlen))<0)
-       	{
-               	perror("Accept Failed");
-               	exit(EXIT_FAILURE);
-       	}
-	
-        return server;
+	if ((server->socket = accept(server->fd, (struct sockaddr *)&address,
+			(socklen_t*)&addrlen))<0)
+		err(EXIT_FAILURE, "Accept Failed");
+
+	return server;
 }
 
-struct packet* receive_page_request(struct server_info *server)
-{
-    	char buffer[PAGE_SIZE] = {0};
+int receive_page_request(struct server_info *server, section_t *type,
+		uint64_t *addr) {
 	int valread;
-
-	struct packet* recv_packet = (struct packet*)malloc(sizeof(struct packet));
-	if(!recv_packet)
-	{
-		perror("Malloc Failed");
-		exit(EXIT_FAILURE);
-	}
+	struct packet recv_packet;
 
 	// Read received data
-       	valread = read(server->socket , buffer, PAGE_SIZE);
-	recv_packet = (struct packet*)buffer;
-
-	return recv_packet;
-}
-
-int send_page_response(int sock, int fd, uint64_t offset)
-{
-	char buffer[PAGE_SIZE];
-
-	if(pread(fd, buffer, PAGE_SIZE, offset) != PAGE_SIZE)
-	{
-		fprintf(stderr, "Cannot read file at offset 0x%x\n", offset);
+    valread = read(server->socket , &recv_packet, sizeof(struct packet));
+	if(valread != sizeof(struct packet)) {
+		err(EXIT_FAILURE, "failed/short read (%d, shoud be %d) on page request "
+				"reception", valread, sizeof(struct packet));
 		return -1;
 	}
 
-	if(send(sock, (void*)buffer, PAGE_SIZE, 0 ) == -1)
-	{
+	*type = recv_packet.type;
+	*addr = recv_packet.address;
+
+	return 0;
+}
+
+int send_page_response(int sock, char *buffer, uint64_t offset) {
+
+	if(send(sock, (void*)(buffer + offset), PAGE_SIZE, 0 ) == -1) {
 		perror("Page response send failed");
 		return -1;
 	}
 
-	return 0;			
+	return 0;
 }
 
-void handle_broken_pipe()
-{
+void handle_broken_pipe() {
 	run_server = 0;
 }
 
-int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
-{
+int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	const char* file_name;
-	section type;
-	struct packet *recv_packet = NULL;
-	int heap_fd = -1, bss_fd = -1, fd;
+	char *target_buffer;
 	int ret = 0;
+	section_t req_type;
+	uint64_t req_addr;
 
 	signal(SIGPIPE, handle_broken_pipe);
-	
+
+	mmap_file(CHKPT_HEAP_FILE, &heap_ptr);
+	mmap_file(CHKPT_BSS_FILE, &bss_ptr);
+
 	struct server_info *server = setup_page_response_server();
-	print_server_ip();
+
+	printf("Client connected!\n");
 	fflush(stdout);
-	
-	while(run_server)
-	{
-		recv_packet = receive_page_request(server);
-		switch(recv_packet->type)
-		{
-			case BSS:
-				if(bss_fd == -1)
-				{
-					bss_fd = open(CHKPT_BSS_FILE, O_RDONLY, 0);
-					if(bss_fd == -1) 
-					{
-						perror("opening bss file");
-						ret = -1;
-						goto clean;
-					}
-				}
-				fd = bss_fd;
+
+	while(run_server) {
+		receive_page_request(server, &req_type, &req_addr);
+#if 0
+		printf("Packet received, type: %s, addr: 0x%llu\n",
+				(req_type == SECTION_HEAP) ? "heap" : "bss",
+				req_addr);
+#endif
+		switch(req_type) {
+			case SECTION_BSS:
 				bss_size -= PAGE_SIZE;
+				target_buffer = bss_ptr;
 				break;
 
-			case HEAP:
-				if(heap_fd == -1)
-				{
-					heap_fd = open(CHKPT_HEAP_FILE, O_RDONLY, 0);
-					if(heap_fd == -1) 
-					{
-						perror("opening bss file");
-						ret = -1;
-						goto clean;
-					}
-				}
-				fd = heap_fd;
+			case SECTION_HEAP:
 				heap_size -= PAGE_SIZE;
+				target_buffer = heap_ptr;
 				break;
 
 			default:
@@ -263,14 +195,10 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 				goto clean;
 		}
 
-		if(send_page_response(server->socket, fd, recv_packet->address) == -1)
-		{
+		if(send_page_response(server->socket, target_buffer, req_addr) == -1) {
 			ret = -1;
 			goto clean;
 		}
-
-		// TODO: Make it work
-		//free(recv_packet);
 
 		if(heap_size <= 0)// && bss_size <=0)
 			break;
@@ -278,10 +206,8 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size)
 
 clean:
 	printf("Closing Server\n");
-	if(bss_fd != -1)
-		close(bss_fd);
-	if(heap_fd != -1)
-		close(heap_fd);
+	munmap_file(CHKPT_HEAP_FILE, heap_ptr);
+	munmap_file(CHKPT_BSS_FILE, bss_ptr);
 	close(server->fd);
 	close(server->socket);
 	free(server);
@@ -294,73 +220,75 @@ clean:
 int connect_to_page_response_server()
 {
 	struct sockaddr_in address;
-    	int sock = 0, valread;
-    	struct sockaddr_in serv_addr;
+	int sock = 0, valread;
+	struct sockaddr_in serv_addr;
 
 	const char* server_ip = getenv("HERMIT_MIGRATE_SERVER");
-	if(!server_ip)
-	{
-		printf("Please provide with server ip\n");
+	if(!server_ip) {
+		printf("Please provide with server ip (HERMIT_MIGRATE_SERVER env. "
+				"variable\n");
 		return -1;
 	}
 
-    	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    	{
-        	perror("Socket creation error");
-        	return -1;
-    	}
+	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("Socket creation error");
+		return -1;
+	}
 
-    	memset(&serv_addr, '0', sizeof(serv_addr));
+	memset(&serv_addr, '0', sizeof(serv_addr));
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_port = htons(ondemand_migration_port);
 
-    	serv_addr.sin_family = AF_INET;
-    	serv_addr.sin_port = htons(ondemand_migration_port);
-
-    	// Convert IPv4 and IPv6 addresses from text to binary form
-    	if(inet_pton(AF_INET, server_ip, &serv_addr.sin_addr)<=0)
-    	{
-        	perror("Invalid address/ Address not supported");
+	// Convert IPv4 and IPv6 addresses from text to binary form
+	if(inet_pton(AF_INET, server_ip, &serv_addr.sin_addr)<=0) {
+		perror("Invalid address/ Address not supported");
 		close(sock);
-        	return -1;
-    	}
+		return -1;
+	}
 
-    	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    	{
-        	perror("Connection Failed");
+	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+		perror("Connection Failed");
 		close(sock);
-        	return -1;
-    	}
+		return -1;
+	}
 
 	return sock;
 }
 
-int send_page_request(section type, uint64_t address, char *buffer)
-{
+#define SEND_TIMING	0
+
+int send_page_request(section_t type, uint64_t address, char *buffer) {
 	int valread, i;
 	size_t size = 0;
-	
-	struct packet* send_packet = (struct packet*)malloc(sizeof(struct packet));
-	send_packet->type = type;
-	send_packet->address = address;
+	struct packet send_packet;
+#if SEND_TIMING == 1
+	struct timeval start, stop, total;
+	static int requests_num = 0;
+	gettimeofday(&start, NULL);
+#endif
 
-	if(send(client_socket, (const void*)send_packet, sizeof(struct packet), 0) == -1)
-	{
-		perror("Page request send failed.");
-		return -1;
-	}
+	send_packet.type = type;
+	send_packet.address = address;
+	if(send(client_socket, (const void*)(&send_packet), sizeof(struct packet),
+				0) == -1)
+		err(EXIT_FAILURE, "Page request send failed.");
 
-	while(size != PAGE_SIZE)
-	{
-    		valread = recv(client_socket ,(void*)(buffer+size), PAGE_SIZE-size, 0);
-		if(valread == -1)
-		{
+	int total_sz = PAGE_SIZE;
+	while(size < total_sz)	{
+		valread = recv(client_socket ,(void*)(buffer+size), total_sz-size, 0);
+		if(valread == -1) {
 			perror("Page receive failed");
 			return -1;
 		}
 
 		size += valread;
 	}
-	
-	free(send_packet);
+
+#if SEND_TIMING == 1
+	gettimeofday(&stop, NULL);
+	timersub(&stop, &start, &total);
+	printf("Request %d: %ld.%06ld\n", requests_num++, total.tv_sec, total.tv_usec);
+#endif
 
 	return 0;
 }
