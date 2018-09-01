@@ -24,9 +24,11 @@ struct server_info {
 struct packet {
 	section_t type;
 	uint64_t address;
+	uint8_t npages;
 };
 
 int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size);
-int send_page_request(section_t type, uint64_t address, char *buffer);
+int send_page_request(section_t type, uint64_t address, char *buffer,
+		uint8_t npages);
 int connect_to_page_response_server();
 #endif

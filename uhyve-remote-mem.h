@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-int rmem_heap(uint64_t vaddr, uint64_t paddr);
+int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages);
 int rmem_init(void);
 
 #endif /* UHYVE_REMOTE_MEM_H */

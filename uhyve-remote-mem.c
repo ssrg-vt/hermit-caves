@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "uhyve-het-migration-ondemand.h"
 
@@ -115,12 +116,12 @@ int rmem_end(void) {
 
 }
 
-int rmem_heap_file(uint64_t vaddr, uint64_t paddr) {
+int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
 	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
 	uint64_t heap_offset = page_floor - md.heap_start;
 
-	if(pread(heap_file_fd, guest_mem + paddr, PAGE_SIZE_HEAP, heap_offset) !=
-			PAGE_SIZE_HEAP) {
+	if(pread(heap_file_fd, guest_mem + paddr, PAGE_SIZE_HEAP*npages,
+				heap_offset) != PAGE_SIZE_HEAP) {
 		fprintf(stderr, "Cannot read heap file at offset 0x%x\n", heap_offset);
 		return -1;
 	}
@@ -128,19 +129,19 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr) {
 	return 0;
 }
 
-int rmem_heap_net(uint64_t vaddr, uint64_t paddr) {
+int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
 	uint64_t heap_offset = page_floor - md.heap_start;
 
-	send_page_request(SECTION_HEAP, heap_offset, guest_mem+paddr);
+	send_page_request(SECTION_HEAP, heap_offset, guest_mem+paddr, npages);
 
 	return 0;
 }
 
-int rmem_heap(uint64_t vaddr, uint64_t paddr) {
+int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file(vaddr, paddr);
+	return rmem_heap_file(vaddr, paddr, npages);
 #else
-	return rmem_heap_net(vaddr, paddr);
+	return rmem_heap_net(vaddr, paddr, npages);
 #endif
 }

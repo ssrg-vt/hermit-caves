@@ -122,7 +122,7 @@ struct server_info* setup_page_response_server() {
 }
 
 int receive_page_request(struct server_info *server, section_t *type,
-		uint64_t *addr) {
+		uint64_t *addr, uint8_t *npages) {
 	int valread;
 	struct packet recv_packet;
 
@@ -136,13 +136,15 @@ int receive_page_request(struct server_info *server, section_t *type,
 
 	*type = recv_packet.type;
 	*addr = recv_packet.address;
+	*npages = recv_packet.npages;
 
 	return 0;
 }
 
-int send_page_response(int sock, char *buffer, uint64_t offset) {
+int send_page_response(int sock, char *buffer, uint64_t offset,
+		uint8_t npages) {
 
-	if(send(sock, (void*)(buffer + offset), PAGE_SIZE, 0 ) == -1) {
+	if(send(sock, (void*)(buffer + offset), PAGE_SIZE*npages, 0 ) == -1) {
 		perror("Page response send failed");
 		return -1;
 	}
@@ -160,6 +162,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	int ret = 0;
 	section_t req_type;
 	uint64_t req_addr;
+	uint8_t npages;
 
 	signal(SIGPIPE, handle_broken_pipe);
 
@@ -172,11 +175,10 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	fflush(stdout);
 
 	while(run_server) {
-		receive_page_request(server, &req_type, &req_addr);
+		receive_page_request(server, &req_type, &req_addr, &npages);
 #if 0
-		printf("Packet received, type: %s, addr: 0x%llu\n",
-				(req_type == SECTION_HEAP) ? "heap" : "bss",
-				req_addr);
+		printf("Packet received, type: %s, addr: 0x%llu, npages: %u\n",
+				(req_type == SECTION_HEAP) ? "heap" : "bss", req_addr, npages);
 #endif
 		switch(req_type) {
 			case SECTION_BSS:
@@ -195,7 +197,8 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
-		if(send_page_response(server->socket, target_buffer, req_addr) == -1) {
+		if(send_page_response(server->socket, target_buffer, req_addr,
+					npages) == -1) {
 			ret = -1;
 			goto clean;
 		}
@@ -257,7 +260,8 @@ int connect_to_page_response_server()
 
 #define SEND_TIMING	0
 
-int send_page_request(section_t type, uint64_t address, char *buffer) {
+int send_page_request(section_t type, uint64_t address, char *buffer,
+		uint8_t npages) {
 	int valread, i;
 	size_t size = 0;
 	struct packet send_packet;
@@ -269,11 +273,12 @@ int send_page_request(section_t type, uint64_t address, char *buffer) {
 
 	send_packet.type = type;
 	send_packet.address = address;
+	send_packet.npages = npages;
 	if(send(client_socket, (const void*)(&send_packet), sizeof(struct packet),
 				0) == -1)
 		err(EXIT_FAILURE, "Page request send failed.");
 
-	int total_sz = PAGE_SIZE;
+	int total_sz = PAGE_SIZE*npages;
 	while(size < total_sz)	{
 		valread = recv(client_socket ,(void*)(buffer+size), total_sz-size, 0);
 		if(valread == -1) {
