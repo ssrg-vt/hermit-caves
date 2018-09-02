@@ -76,6 +76,7 @@ struct server_info* setup_page_response_server() {
 
 	printf("Remote page server listenning on port %d...\n",
 			ondemand_migration_port);
+	fflush(stdout);
 
 	// Accept connection request
 	if ((server->socket = accept(server->fd, (struct sockaddr *)&address,
