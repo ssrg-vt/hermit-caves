@@ -292,12 +292,14 @@ static int vcpu_loop(void)
 		}
 	}
 
+#ifdef __aarch64__
+	/* Find page table root so we can translate guest addresses for aarch64 */
+	uhyve_aarch64_find_pt_root(guest_path);
+#endif
+
 	/* init uhyve gdb support */
 	if (uhyve_gdb_enabled) {
 		if (cpuid == 0) {
-#ifdef __aarch64__
-			uhyve_aarch64_find_pt_root(guest_path);
-#endif
 			uhyve_gdb_init(vcpufd);
 		}
 

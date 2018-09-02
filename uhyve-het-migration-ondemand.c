@@ -19,7 +19,9 @@
 #include <err.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <linux/kvm.h>
 
+#include "uhyve.h"
 #include "uhyve-het-migration-ondemand.h"
 
 #define CHKPT_MDATA_FILE	"mdata.bin"
@@ -34,48 +36,10 @@
 #define NI_MAXHOST 	1025
 
 extern int client_socket;
+extern __thread int vcpufd;
+extern uint64_t aarch64_virt_to_phys(uint64_t vaddr);
 
 char run_server = 1;
-char *heap_ptr = NULL;
-char *bss_ptr = NULL;
-
-/* Fully map a file in memory */
-int mmap_file(const char *filename, char **ptr) {
-	int fd;
-	uint64_t map_size;
-
-	fd = open(filename, O_RDONLY, 0x0);
-	if(fd == -1)
-		err(EXIT_FAILURE, "Cannot open %s\n", CHKPT_HEAP_FILE);
-
-
-	map_size = lseek(fd, 0x0, SEEK_END);
-
-	*ptr = mmap(NULL, map_size, PROT_READ, MAP_PRIVATE | MAP_POPULATE,
-			fd, 0x0);
-	if(*ptr == MAP_FAILED)
-		err(EXIT_FAILURE, "Cannot mmap %s\n", CHKPT_HEAP_FILE);
-
-	close(fd);
-	return 0;
-}
-
-/* Unmap a _fully mapped_ file */
-int munmap_file(const char *filename, char *ptr) {
-	int fd;
-	uint64_t map_size;
-
-	fd = open(filename, O_RDONLY, 0x0);
-	if(fd == -1)
-		err(EXIT_FAILURE, "Cannot open %s\n", CHKPT_HEAP_FILE);
-
-
-	map_size = lseek(fd, 0x0, SEEK_END);
-	munmap(ptr, map_size);
-
-	close(fd);
-	return 0;
-}
 
 struct server_info* setup_page_response_server() {
 	int opt = 1;
@@ -141,14 +105,30 @@ int receive_page_request(struct server_info *server, section_t *type,
 	return 0;
 }
 
-int send_page_response(int sock, char *buffer, uint64_t offset,
-		uint8_t npages) {
+uint64_t guest_virt_to_phys(uint64_t vaddr) {
+#ifdef __aarch64__
+		return aarch64_virt_to_phys(vaddr);
+#else
+		struct kvm_translation kt;
+		kt.linear_address = vaddr;
+		kvm_ioctl(vcpufd, KVM_TRANSLATE, &kt);
+		return kt.physical_address;
+#endif
+}
 
-	if(send(sock, (void*)(buffer + offset), PAGE_SIZE*npages, 0 ) == -1) {
-		perror("Page response send failed");
-		return -1;
+int send_page_response(int sock, uint64_t vaddr, uint8_t npages) {
+	char *buffer = malloc(npages * PAGE_SIZE);
+
+	/* Fill buffer with pages from vaddr then send it */
+	for(int i=0; i<npages; i++) {
+		uint64_t paddr = guest_virt_to_phys(vaddr+i*PAGE_SIZE);
+		memcpy(buffer + i*PAGE_SIZE, guest_mem + paddr, PAGE_SIZE);
 	}
 
+	if(send(sock, buffer, PAGE_SIZE*npages, 0) == -1)
+		err(EXIT_FAILURE, "Remote server cannot send page data");
+
+	free(buffer);
 	return 0;
 }
 
@@ -158,16 +138,12 @@ void handle_broken_pipe() {
 
 int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	const char* file_name;
-	char *target_buffer;
 	int ret = 0;
 	section_t req_type;
 	uint64_t req_addr;
 	uint8_t npages;
 
 	signal(SIGPIPE, handle_broken_pipe);
-
-	mmap_file(CHKPT_HEAP_FILE, &heap_ptr);
-	mmap_file(CHKPT_BSS_FILE, &bss_ptr);
 
 	struct server_info *server = setup_page_response_server();
 
@@ -183,12 +159,10 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 		switch(req_type) {
 			case SECTION_BSS:
 				bss_size -= PAGE_SIZE;
-				target_buffer = bss_ptr;
 				break;
 
 			case SECTION_HEAP:
 				heap_size -= PAGE_SIZE;
-				target_buffer = heap_ptr;
 				break;
 
 			default:
@@ -197,8 +171,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
-		if(send_page_response(server->socket, target_buffer, req_addr,
-					npages) == -1) {
+		if(send_page_response(server->socket, req_addr,	npages) == -1) {
 			ret = -1;
 			goto clean;
 		}
@@ -209,8 +182,6 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 
 clean:
 	printf("Closing Server\n");
-	munmap_file(CHKPT_HEAP_FILE, heap_ptr);
-	munmap_file(CHKPT_BSS_FILE, bss_ptr);
 	close(server->fd);
 	close(server->socket);
 	free(server);
@@ -258,18 +229,11 @@ int connect_to_page_response_server()
 	return sock;
 }
 
-#define SEND_TIMING	0
-
 int send_page_request(section_t type, uint64_t address, char *buffer,
 		uint8_t npages) {
 	int valread, i;
 	size_t size = 0;
 	struct packet send_packet;
-#if SEND_TIMING == 1
-	struct timeval start, stop, total;
-	static int requests_num = 0;
-	gettimeofday(&start, NULL);
-#endif
 
 	send_packet.type = type;
 	send_packet.address = address;
@@ -288,12 +252,6 @@ int send_page_request(section_t type, uint64_t address, char *buffer,
 
 		size += valread;
 	}
-
-#if SEND_TIMING == 1
-	gettimeofday(&stop, NULL);
-	timersub(&stop, &start, &total);
-	printf("Request %d: %ld.%06ld\n", requests_num++, total.tv_sec, total.tv_usec);
-#endif
 
 	return 0;
 }

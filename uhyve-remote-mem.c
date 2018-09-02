@@ -136,12 +136,7 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
 }
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
-	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
-	uint64_t heap_offset = page_floor - md.heap_start;
-
-	send_page_request(SECTION_HEAP, heap_offset, guest_mem+paddr, npages);
-
-	return 0;
+	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages);
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
