@@ -40,7 +40,7 @@ extern int client_socket;
 extern __thread int vcpufd;
 extern uint64_t aarch64_virt_to_phys(uint64_t vaddr);
 
-char run_server = 1;
+static char run_server = 1;
 
 struct server_info* setup_page_response_server() {
 	int opt = 1;
@@ -176,11 +176,11 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 #endif
 		switch(req_type) {
 			case SECTION_BSS:
-				bss_size -= PAGE_SIZE;
+				bss_size -= PAGE_SIZE*npages;
 				break;
 
 			case SECTION_HEAP:
-				heap_size -= PAGE_SIZE;
+				heap_size -= PAGE_SIZE*npages;
 				break;
 
 			default:
@@ -193,7 +193,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 		if(ret == -1)
 			goto clean;
 
-		if(heap_size <= 0) { // && bss_size <=0)
+		if(heap_size == 0) { // && bss_size == 0)
 			printf("Full remote memory served\n");
 			break;
 		}
