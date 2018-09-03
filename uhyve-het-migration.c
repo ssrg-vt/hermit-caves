@@ -10,6 +10,7 @@
 #include <err.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 #define HET_MIGRATION_STATUS_FILE	".status"
 #define MIGRATION_SIGNAL			SIGUSR1
@@ -99,7 +100,11 @@ int test_migration(int sec) {
 /* status should be one of the defines in uhyve-het-migration.h */
 int het_migration_set_status(het_migration_status_t status) {
 	int fd;
-	char *str;
+	char *status_str;
+	char str[128];
+	struct timeval ts;
+
+	gettimeofday(&ts, NULL);
 
 	/* Create the status file if it does not exists */
 	if(access(HET_MIGRATION_STATUS_FILE, F_OK) == -1)
@@ -114,23 +119,25 @@ int het_migration_set_status(het_migration_status_t status) {
 
 	switch(status) {
 		case STATUS_NOT_RUNNING:
-			str = "STATUS_NOT_RUNNING";
+			status_str = "STATUS_NOT_RUNNING";
 			break;
 		case STATUS_PULLING_PAGES:
-			str = "STATUS_PULLING_PAGES";
+			status_str = "STATUS_PULLING_PAGES";
 			break;
 		case STATUS_READY_FOR_MIGRATION:
-			str = "STATUS_READY_FOR_MIGRATION";
+			status_str = "STATUS_READY_FOR_MIGRATION";
 			break;
 		case STATUS_CHECKPOINTING:
-			str = "STATUS_CHECKPOINTING";
+			status_str = "STATUS_CHECKPOINTING";
 			break;
 		case STATUS_SERVING_REMOTE_PAGES:
-			str = "STATUS_SERVING_REMOTE_PAGES";
+			status_str = "STATUS_SERVING_REMOTE_PAGES";
 			break;
 		default:
 			err(EXIT_FAILURE, "Wrong status!");
 	}
+
+	sprintf(str, "%ld.%06ld:%s\n", ts.tv_sec, ts.tv_usec, status_str);
 
 	if(write(fd, str, strlen(str)-1) != strlen(str)-1)
 		err(EXIT_FAILURE, "Short write in status file");
