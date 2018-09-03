@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <linux/kvm.h>
+#include <errno.h>
 
 #include "uhyve.h"
 #include "uhyve-het-migration-ondemand.h"
@@ -86,6 +87,11 @@ struct server_info* setup_page_response_server() {
 	return server;
 }
 
+/* Returns:
+ * 0 on success (page request served)
+ * -1 on error
+ * 1 if the remote client exited normally
+ */
 int receive_page_request(struct server_info *server, section_t *type,
 		uint64_t *addr, uint8_t *npages) {
 	int valread;
@@ -94,6 +100,15 @@ int receive_page_request(struct server_info *server, section_t *type,
 	// Read received data
     valread = read(server->socket , &recv_packet, sizeof(struct packet));
 	if(valread != sizeof(struct packet)) {
+		/* This may indicate that the client simply finished execution - FIXME
+		 * there might be other error conditions here that are actually valid
+		 * execution */
+		if(valread == 0 && (errno == ENOENT || errno == EINTR)) {
+			printf("Client exited\n");
+			run_server = 0;
+			return 1;
+		}
+
 		err(EXIT_FAILURE, "failed/short read (%d, shoud be %d) on page request "
 				"reception", valread, sizeof(struct packet));
 		return -1;
@@ -172,13 +187,14 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
-		if(send_page_response(server->socket, req_addr,	npages) == -1) {
-			ret = -1;
+		ret = send_page_response(server->socket, req_addr,	npages);
+		if(ret == -1)
 			goto clean;
-		}
 
-		if(heap_size <= 0)// && bss_size <=0)
+		if(heap_size <= 0) { // && bss_size <=0)
+			printf("Full remote memory served\n");
 			break;
+		}
 	}
 
 clean:
