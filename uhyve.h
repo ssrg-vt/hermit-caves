@@ -40,9 +40,10 @@
 #define UHYVE_PORT_EXIT			0x540
 #define UHYVE_PORT_LSEEK		0x580
 
-#define UHYVE_PORT_MIGRATE		0x509
+#define UHYVE_PORT_MIGRATE		0x509 /* 2. Checkpoint done */
 #define UHYVE_PORT_UNLINK		0x510
 #define UHYVE_PORT_PFAULT		0x511
+#define UHYVE_PORT_PRE_MIGRATE	0x512 /* 1. Starting checkpointing process */
 
 // Networkports
 #define UHYVE_PORT_NETINFO              0x600

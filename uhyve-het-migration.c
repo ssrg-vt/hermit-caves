@@ -110,10 +110,10 @@ int het_migration_set_status(het_migration_status_t status) {
 	if(access(HET_MIGRATION_STATUS_FILE, F_OK) == -1)
 		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_CREAT, 0777);
 	else
-		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_TRUNC, 0x0);
+		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_APPEND, 0x0);
 
 	if(fd == -1)
-		err(EXIT_FAILURE, "Cannot create status file");
+		err(EXIT_FAILURE, "Cannot open/create status file");
 
 	flock(fd, LOCK_EX);
 
@@ -130,7 +130,7 @@ int het_migration_set_status(het_migration_status_t status) {
 		case STATUS_CHECKPOINTING:
 			status_str = "STATUS_CHECKPOINTING";
 			break;
-		case STATUS_SERVING_REMOTE_PAGES:
+		case STATUS_SERVING_PAGES:
 			status_str = "STATUS_SERVING_REMOTE_PAGES";
 			break;
 		default:
@@ -139,7 +139,7 @@ int het_migration_set_status(het_migration_status_t status) {
 
 	sprintf(str, "%ld.%06ld:%s\n", ts.tv_sec, ts.tv_usec, status_str);
 
-	if(write(fd, str, strlen(str)-1) != strlen(str)-1)
+	if(write(fd, str, strlen(str)) != strlen(str))
 		err(EXIT_FAILURE, "Short write in status file");
 
 	flock(fd, LOCK_UN);

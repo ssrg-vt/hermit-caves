@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "uhyve-het-migration.h"
 #include "uhyve-het-migration-ondemand.h"
 
 /* Hack to avoid two definitions of chkpt_metadata_t (and the default
@@ -154,8 +155,11 @@ int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 	/* If we transferred the entire data set, close the connection FIXME this
 	 * only works for heap now */
 	remote_size_left -= npages*PAGE_SIZE_HEAP;
-	if(!remote_size_left)
+	if(!remote_size_left) {
+		/* Popcorn: update status to ready for migration */
+		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 		rmem_end();
+	}
 
 	return ret;
 }
