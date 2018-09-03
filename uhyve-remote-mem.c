@@ -37,6 +37,7 @@ typedef unsigned int 		tid_t;
 
 static int heap_file_fd;
 static chkpt_metadata_t md;
+static uint64_t remote_size_left;
 extern uint8_t* guest_mem;
 extern int client_socket;
 
@@ -84,6 +85,9 @@ static int rmem_heap_net_init(const char *mdata_file_path) {
 	}
 
 	close(mdata_fd);
+
+	/* TODO: sum heap + data + bss? */
+	remote_size_left = md.heap_size;
 
 	return 0;
 }
@@ -140,9 +144,18 @@ int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
+	int ret;
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file(vaddr, paddr, npages);
+	ret = rmem_heap_file(vaddr, paddr, npages);
 #else
-	return rmem_heap_net(vaddr, paddr, npages);
+	ret = rmem_heap_net(vaddr, paddr, npages);
 #endif
+
+	/* If we transferred the entire data set, close the connection FIXME this
+	 * only works for heap now */
+	remote_size_left -= npages*PAGE_SIZE_HEAP;
+	if(!remote_size_left)
+		rmem_end();
+
+	return ret;
 }
