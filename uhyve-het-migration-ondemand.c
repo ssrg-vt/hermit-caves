@@ -123,12 +123,14 @@ int receive_page_request(struct server_info *server, section_t *type,
 
 uint64_t guest_virt_to_phys(uint64_t vaddr) {
 #ifdef __aarch64__
-		return aarch64_virt_to_phys(vaddr);
+	/* aarch64 does not support KVM_TRANSLATE, so we have to manually walk the
+	 * page table from the host */
+	return aarch64_virt_to_phys(vaddr);
 #else
-		struct kvm_translation kt;
-		kt.linear_address = vaddr;
-		kvm_ioctl(vcpufd, KVM_TRANSLATE, &kt);
-		return kt.physical_address;
+	struct kvm_translation kt;
+	kt.linear_address = vaddr;
+	kvm_ioctl(vcpufd, KVM_TRANSLATE, &kt);
+	return kt.physical_address;
 #endif
 }
 
