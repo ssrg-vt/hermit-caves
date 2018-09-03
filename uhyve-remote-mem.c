@@ -24,9 +24,11 @@ typedef unsigned int 		tid_t;
 #include "../include/hermit/migration-aarch64-regs.h"
 #include "../include/hermit/migration-chkpt.h"
 
-/* For now we only support the 'file' remote heap provider, which involves
- * dumping the applications state to a file and having it shared on NFS between
- * host and target */
+/* We support:
+ * - the 'file' remote heap provider, which involves dumping the applications
+ *   state to a file and having it shared on NFS between host and target
+ * - the 'net' which sets up a tcp/ip connection between the host and target
+ *   and serves pages requests directly from the source guest memory */
 #define HEAP_PROVIDER_FILE	0
 #define HEAP_PROVIDER_NET	1
 #define HEAP_PROVIDER		HEAP_PROVIDER_NET
@@ -107,10 +109,9 @@ static int rmem_heap_file_end(void) {
 	return 0;
 }
 
-/* TODO */
 static int rmem_heap_net_end(void) {
 	close(client_socket);
-	return 0;//-ENOSYS;
+	return 0;
 }
 
 int rmem_end(void) {
@@ -119,7 +120,6 @@ int rmem_end(void) {
 #else
 	return rmem_heap_net_end();
 #endif
-
 }
 
 int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
