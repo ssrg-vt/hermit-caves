@@ -115,6 +115,10 @@ static sigset_t   signal_mask;
 extern int ondemand_migration_port;
 int flock_fd;
 
+/* Popcorn full-checkpoint vs ODP */
+bool full_chkpt_save = false;
+bool full_chkpt_restore = false;
+
 extern int uhyve_aarch64_find_pt_root(char *binary_path);
 
 typedef struct {
@@ -521,8 +525,7 @@ static int vcpu_loop(void)
 				close(flock_fd);
 
 				/* Switch to remote page server if needed */
-				char *str = getenv("HERMIT_MIGRATE_PORT");
-				if(str && atoi(str)) {
+				if(!full_chkpt_save) {
 					/* Popcorn: set status to serving remote pages */
 					het_migration_set_status(STATUS_SERVING_PAGES);
 					printf("Uhyve: switching to server mode\n");
@@ -690,6 +693,14 @@ void sigterm_handler(int signum)
 int uhyve_init(char *path)
 {
 	FILE *f = NULL;
+	const char *hermit_full_chkpt_save = getenv("HERMIT_FULL_CHKPT_SAVE");
+	const char *hermit_full_chkpt_restore = getenv("HERMIT_FULL_CHKPT_RESTORE");
+
+	if(hermit_full_chkpt_save && atoi(hermit_full_chkpt_save))
+		full_chkpt_save = true;
+
+	if(hermit_full_chkpt_restore && atoi(hermit_full_chkpt_restore))
+		full_chkpt_restore = true;
 
 	flock_fd = open(".lock", O_CREAT, S_IRWXU|S_IRWXO);
 	if(flock_fd == -1)
@@ -719,7 +730,7 @@ int uhyve_init(char *path)
 	}
 
 	/* Initialize remote memory access if needed */
-	if(migrate_resume) {
+	if(migrate_resume && !full_chkpt_restore) {
 			int ret = rmem_init();
 			if(ret) return ret;
 	}
