@@ -109,6 +109,8 @@ extern uint8_t* mboot;
 extern __thread struct kvm_run *run;
 extern __thread int vcpufd;
 extern __thread uint32_t cpuid;
+extern bool full_chkpt_save;
+extern bool full_chkpt_restore;
 
 /* Walk the guest page table to translate a guest virtual into a guest physical
  * address. This works only for 4KB granule and 4KB pages */
@@ -733,6 +735,12 @@ int load_kernel(uint8_t* mem, char* path)
 			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x19C)) = atoi(str);
 		else
 			fprintf(stderr, "Warning: no node_id specified, defaulting to 0\n");
+
+		/* Set settings concerning full checkpoint vs ODP */
+		if(full_chkpt_save)
+			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x1A4)) = 1;
+		if(full_chkpt_restore)
+			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x1AC)) = 1;
 
 		*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0x158)) += memsz; // total kernel size
 	}

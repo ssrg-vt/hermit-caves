@@ -10,6 +10,7 @@
 #include <err.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 
 #define HET_MIGRATION_STATUS_FILE	".status"
 #define MIGRATION_SIGNAL			SIGUSR1
@@ -99,40 +100,49 @@ int test_migration(int sec) {
 /* status should be one of the defines in uhyve-het-migration.h */
 int het_migration_set_status(het_migration_status_t status) {
 	int fd;
-	char *str;
+	char *status_str;
+	char str[128];
+	struct timeval ts;
+
+	gettimeofday(&ts, NULL);
 
 	/* Create the status file if it does not exists */
 	if(access(HET_MIGRATION_STATUS_FILE, F_OK) == -1)
 		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_CREAT, 0777);
 	else
-		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_TRUNC, 0x0);
+		fd = open(HET_MIGRATION_STATUS_FILE, O_WRONLY | O_APPEND, 0x0);
 
 	if(fd == -1)
-		err(EXIT_FAILURE, "Cannot create status file");
+		err(EXIT_FAILURE, "Cannot open/create status file");
 
 	flock(fd, LOCK_EX);
 
 	switch(status) {
 		case STATUS_NOT_RUNNING:
-			str = "STATUS_NOT_RUNNING";
+			status_str = "STATUS_NOT_RUNNING";
+			break;
+		case STATUS_RESTORING_CHKPT:
+			status_str = "STATUS_RESTORING_CHKPT";
 			break;
 		case STATUS_PULLING_PAGES:
-			str = "STATUS_PULLING_PAGES";
+			status_str = "STATUS_PULLING_PAGES";
 			break;
 		case STATUS_READY_FOR_MIGRATION:
-			str = "STATUS_READY_FOR_MIGRATION";
+			status_str = "STATUS_READY_FOR_MIGRATION";
 			break;
 		case STATUS_CHECKPOINTING:
-			str = "STATUS_CHECKPOINTING";
+			status_str = "STATUS_CHECKPOINTING";
 			break;
-		case STATUS_SERVING_REMOTE_PAGES:
-			str = "STATUS_SERVING_REMOTE_PAGES";
+		case STATUS_SERVING_PAGES:
+			status_str = "STATUS_SERVING_REMOTE_PAGES";
 			break;
 		default:
 			err(EXIT_FAILURE, "Wrong status!");
 	}
 
-	if(write(fd, str, strlen(str)-1) != strlen(str)-1)
+	sprintf(str, "%ld.%06ld:%s\n", ts.tv_sec, ts.tv_usec, status_str);
+
+	if(write(fd, str, strlen(str)) != strlen(str))
 		err(EXIT_FAILURE, "Short write in status file");
 
 	flock(fd, LOCK_UN);

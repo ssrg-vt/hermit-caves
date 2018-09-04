@@ -115,6 +115,10 @@ static sigset_t   signal_mask;
 extern int ondemand_migration_port;
 int flock_fd;
 
+/* Popcorn full-checkpoint vs ODP */
+bool full_chkpt_save = false;
+bool full_chkpt_restore = false;
+
 extern int uhyve_aarch64_find_pt_root(char *binary_path);
 
 typedef struct {
@@ -220,6 +224,9 @@ static void uhyve_atexit(void)
 	// clean up and close KVM
 	close_fd(&vmfd);
 	close_fd(&kvm);
+
+	/* Popcorn: set status to not running */
+	het_migration_set_status(STATUS_NOT_RUNNING);
 }
 
 static void* wait_for_packet(void* arg)
@@ -271,6 +278,12 @@ static inline void check_network(void)
 static int vcpu_loop(void)
 {
 	int ret;
+
+	/* Popcorn: set status to currently running */
+	if(migrate_resume)
+		het_migration_set_status(STATUS_RESTORING_CHKPT);
+	else
+		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 
 	pthread_barrier_wait(&barrier);
 
@@ -374,6 +387,7 @@ static int vcpu_loop(void)
 				}
 
 			case UHYVE_PORT_EXIT: {
+					/* Popcorn: status will be set to not running in uhyve_atexit */
 					if (cpuid)
 						pthread_exit((int*)(guest_mem+raddr));
 					else
@@ -489,17 +503,36 @@ static int vcpu_loop(void)
 					break;
 				}
 
+			case UHYVE_PORT_PRE_MIGRATE: {
+				/* Popcorn: set status to checkpointing */
+				het_migration_set_status(STATUS_CHECKPOINTING);
+				break;
+			}
+
+			case UHYVE_PORT_CHKPT_RESTORED: {
+				/* Popcorn: set status accordingly */
+				char *page_server = getenv("HERMIT_MIGRATE_SERVER");
+				if(page_server && atoi(page_server) != 0)
+					het_migration_set_status(STATUS_PULLING_PAGES);
+				else
+					het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+				break;
+			}
+
 			case UHYVE_PORT_MIGRATE: {
 				uhyve_migration_t *arg = (uhyve_migration_t *)(guest_mem + raddr);
 				flock(flock_fd, LOCK_UN);
 				close(flock_fd);
 
 				/* Switch to remote page server if needed */
-				char *str = getenv("HERMIT_MIGRATE_PORT");
-				if(str && atoi(str)) {
+				if(!full_chkpt_save) {
+					/* Popcorn: set status to serving remote pages */
+					het_migration_set_status(STATUS_SERVING_PAGES);
 					printf("Uhyve: switching to server mode\n");
 					on_demand_page_migration(arg->heap_size, arg->bss_size);
 				}
+
+				/* Popcorn: status will be set to not running in uhyve_atexit */
 
 				printf("Uhyve: exiting\n");
 				exit(0);
@@ -664,6 +697,14 @@ void sigterm_handler(int signum)
 int uhyve_init(char *path)
 {
 	FILE *f = NULL;
+	const char *hermit_full_chkpt_save = getenv("HERMIT_FULL_CHKPT_SAVE");
+	const char *hermit_full_chkpt_restore = getenv("HERMIT_FULL_CHKPT_RESTORE");
+
+	if(hermit_full_chkpt_save && atoi(hermit_full_chkpt_save))
+		full_chkpt_save = true;
+
+	if(hermit_full_chkpt_restore && atoi(hermit_full_chkpt_restore))
+		full_chkpt_restore = true;
 
 	flock_fd = open(".lock", O_CREAT, S_IRWXU|S_IRWXO);
 	if(flock_fd == -1)
@@ -693,7 +734,7 @@ int uhyve_init(char *path)
 	}
 
 	/* Initialize remote memory access if needed */
-	if(migrate_resume) {
+	if(migrate_resume && !full_chkpt_restore) {
 			int ret = rmem_init();
 			if(ret) return ret;
 	}

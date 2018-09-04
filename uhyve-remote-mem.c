@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "uhyve-het-migration.h"
 #include "uhyve-het-migration-ondemand.h"
 
 /* Hack to avoid two definitions of chkpt_metadata_t (and the default
@@ -24,9 +25,11 @@ typedef unsigned int 		tid_t;
 #include "../include/hermit/migration-aarch64-regs.h"
 #include "../include/hermit/migration-chkpt.h"
 
-/* For now we only support the 'file' remote heap provider, which involves
- * dumping the applications state to a file and having it shared on NFS between
- * host and target */
+/* We support:
+ * - the 'file' remote heap provider, which involves dumping the applications
+ *   state to a file and having it shared on NFS between host and target
+ * - the 'net' which sets up a tcp/ip connection between the host and target
+ *   and serves pages requests directly from the source guest memory */
 #define HEAP_PROVIDER_FILE	0
 #define HEAP_PROVIDER_NET	1
 #define HEAP_PROVIDER		HEAP_PROVIDER_NET
@@ -35,6 +38,7 @@ typedef unsigned int 		tid_t;
 
 static int heap_file_fd;
 static chkpt_metadata_t md;
+static uint64_t remote_size_left;
 extern uint8_t* guest_mem;
 extern int client_socket;
 
@@ -83,6 +87,9 @@ static int rmem_heap_net_init(const char *mdata_file_path) {
 
 	close(mdata_fd);
 
+	/* TODO: sum heap + data + bss? */
+	remote_size_left = md.heap_size;
+
 	return 0;
 }
 
@@ -107,10 +114,9 @@ static int rmem_heap_file_end(void) {
 	return 0;
 }
 
-/* TODO */
 static int rmem_heap_net_end(void) {
 	close(client_socket);
-	return 0;//-ENOSYS;
+	return 0;
 }
 
 int rmem_end(void) {
@@ -119,7 +125,6 @@ int rmem_end(void) {
 #else
 	return rmem_heap_net_end();
 #endif
-
 }
 
 int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
@@ -140,9 +145,21 @@ int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
+	int ret;
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file(vaddr, paddr, npages);
+	ret = rmem_heap_file(vaddr, paddr, npages);
 #else
-	return rmem_heap_net(vaddr, paddr, npages);
+	ret = rmem_heap_net(vaddr, paddr, npages);
 #endif
+
+	/* If we transferred the entire data set, close the connection FIXME this
+	 * only works for heap now */
+	remote_size_left -= npages*PAGE_SIZE_HEAP;
+	if(!remote_size_left) {
+		/* Popcorn: update status to ready for migration */
+		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+		rmem_end();
+	}
+
+	return ret;
 }

@@ -224,6 +224,8 @@ extern uint8_t* mboot;
 extern __thread struct kvm_run *run;
 extern __thread int vcpufd;
 extern __thread uint32_t cpuid;
+extern bool full_chkpt_save;
+extern bool full_chkpt_restore;
 
 extern vcpu_state_t *vcpu_thread_states;
 
@@ -1262,6 +1264,12 @@ int load_kernel(uint8_t* mem, char* path)
 			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0xDC)) = atoi(str);
 		else
 			fprintf(stderr, "Warning: no node_id specified, defaulting to 0\n");
+
+		/* Set settings concerning full checkpoint vs ODP */
+		if(full_chkpt_save)
+			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0xE0)) = 1;
+		if(full_chkpt_restore)
+			*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0xE4)) = 1;
 
 
 		*((uint64_t*) (mem+pstart-GUEST_OFFSET + 0x38)) = paddr + memsz - pstart; // total kernel size

@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <linux/kvm.h>
+#include <errno.h>
 
 #include "uhyve.h"
 #include "uhyve-het-migration-ondemand.h"
@@ -39,7 +40,7 @@ extern int client_socket;
 extern __thread int vcpufd;
 extern uint64_t aarch64_virt_to_phys(uint64_t vaddr);
 
-char run_server = 1;
+static char run_server = 1;
 
 struct server_info* setup_page_response_server() {
 	int opt = 1;
@@ -86,6 +87,11 @@ struct server_info* setup_page_response_server() {
 	return server;
 }
 
+/* Returns:
+ * 0 on success (page request served)
+ * -1 on error
+ * 1 if the remote client exited normally
+ */
 int receive_page_request(struct server_info *server, section_t *type,
 		uint64_t *addr, uint8_t *npages) {
 	int valread;
@@ -94,6 +100,15 @@ int receive_page_request(struct server_info *server, section_t *type,
 	// Read received data
     valread = read(server->socket , &recv_packet, sizeof(struct packet));
 	if(valread != sizeof(struct packet)) {
+		/* This may indicate that the client simply finished execution - FIXME
+		 * there might be other error conditions here that are actually valid
+		 * execution */
+		if(valread == 0 && (errno == ENOENT || errno == EINTR)) {
+			printf("Client exited\n");
+			run_server = 0;
+			return 1;
+		}
+
 		err(EXIT_FAILURE, "failed/short read (%d, shoud be %d) on page request "
 				"reception", valread, sizeof(struct packet));
 		return -1;
@@ -108,12 +123,14 @@ int receive_page_request(struct server_info *server, section_t *type,
 
 uint64_t guest_virt_to_phys(uint64_t vaddr) {
 #ifdef __aarch64__
-		return aarch64_virt_to_phys(vaddr);
+	/* aarch64 does not support KVM_TRANSLATE, so we have to manually walk the
+	 * page table from the host */
+	return aarch64_virt_to_phys(vaddr);
 #else
-		struct kvm_translation kt;
-		kt.linear_address = vaddr;
-		kvm_ioctl(vcpufd, KVM_TRANSLATE, &kt);
-		return kt.physical_address;
+	struct kvm_translation kt;
+	kt.linear_address = vaddr;
+	kvm_ioctl(vcpufd, KVM_TRANSLATE, &kt);
+	return kt.physical_address;
 #endif
 }
 
@@ -159,11 +176,11 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 #endif
 		switch(req_type) {
 			case SECTION_BSS:
-				bss_size -= PAGE_SIZE;
+				bss_size -= PAGE_SIZE*npages;
 				break;
 
 			case SECTION_HEAP:
-				heap_size -= PAGE_SIZE;
+				heap_size -= PAGE_SIZE*npages;
 				break;
 
 			default:
@@ -172,13 +189,14 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
-		if(send_page_response(server->socket, req_addr,	npages) == -1) {
-			ret = -1;
+		ret = send_page_response(server->socket, req_addr,	npages);
+		if(ret == -1)
 			goto clean;
-		}
 
-		if(heap_size <= 0)// && bss_size <=0)
+		if(heap_size == 0) { // && bss_size == 0)
+			printf("Full remote memory served\n");
 			break;
+		}
 	}
 
 clean:
