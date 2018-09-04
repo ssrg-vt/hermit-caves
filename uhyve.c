@@ -276,9 +276,8 @@ static int vcpu_loop(void)
 	int ret;
 
 	/* Popcorn: set status to currently running */
-	char *page_server = getenv("HERMIT_MIGRATE_SERVER");
-	if(migrate_resume && page_server && atoi(page_server) != 0)
-		het_migration_set_status(STATUS_PULLING_PAGES);
+	if(migrate_resume)
+		het_migration_set_status(STATUS_RESTORING_CHKPT);
 	else
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 
@@ -503,6 +502,16 @@ static int vcpu_loop(void)
 			case UHYVE_PORT_PRE_MIGRATE: {
 				/* Popcorn: set status to checkpointing */
 				het_migration_set_status(STATUS_CHECKPOINTING);
+				break;
+			}
+
+			case UHYVE_PORT_CHKPT_RESTORED: {
+				/* Popcorn: set status accordingly */
+				char *page_server = getenv("HERMIT_MIGRATE_SERVER");
+				if(page_server && atoi(page_server) != 0)
+					het_migration_set_status(STATUS_PULLING_PAGES);
+				else
+					het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 				break;
 			}
 

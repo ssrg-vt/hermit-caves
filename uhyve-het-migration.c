@@ -121,6 +121,9 @@ int het_migration_set_status(het_migration_status_t status) {
 		case STATUS_NOT_RUNNING:
 			status_str = "STATUS_NOT_RUNNING";
 			break;
+		case STATUS_RESTORING_CHKPT:
+			status_str = "STATUS_RESTORING_CHKPT";
+			break;
 		case STATUS_PULLING_PAGES:
 			status_str = "STATUS_PULLING_PAGES";
 			break;
