@@ -524,6 +524,10 @@ static int vcpu_loop(void)
 					break;
 				}
 
+				if(migrate_resume && arg->type == PFAULT_HEAP) {
+					printf("Page fault for BSS\n");
+				}
+
 				printf("Guest page fault @0x%x (RIP @0x%x)\n", arg->vaddr, arg->rip);
 				fflush(stdout);
 				sprintf(addr2line_call, "addr2line -a %x -e %s\n", arg->rip, guest_path);
