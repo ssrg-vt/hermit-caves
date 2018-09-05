@@ -530,6 +530,9 @@ static int vcpu_loop(void)
 				flock(flock_fd, LOCK_UN);
 				close(flock_fd);
 
+				/* Sync the FS for migrated files to be consistent */
+				sync();
+
 				/* Switch to remote page server if needed */
 				if(!full_chkpt_save) {
 					/* Popcorn: set status to serving remote pages */
