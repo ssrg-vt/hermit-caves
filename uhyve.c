@@ -470,6 +470,12 @@ static int vcpu_loop(void)
 					break;
 				}
 
+			case UHYVE_PORT_UNLINK: {
+					uhyve_unlink_t *arg = (uhyve_unlink_t *)(guest_mem+raddr);
+					arg->ret = unlink(guest_mem + (size_t)arg->filename);
+					break;
+			}
+
 			case UHYVE_PORT_CMDSIZE: {
 					int i;
 					uhyve_cmdsize_t *val = (uhyve_cmdsize_t *) (guest_mem+raddr);

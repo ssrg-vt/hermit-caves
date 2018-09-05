@@ -52,6 +52,11 @@ typedef struct {
 	int whence;
 } __attribute__((packed)) uhyve_lseek_t;
 
+typedef struct {
+	char *filename;
+	int ret;
+} __attribute__ ((packed)) uhyve_unlink_t;
+
 typedef enum {
 	PFAULT_FATAL = 0,
 	PFAULT_HEAP

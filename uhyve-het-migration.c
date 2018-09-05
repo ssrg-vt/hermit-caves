@@ -119,7 +119,7 @@ int het_migration_set_status(het_migration_status_t status) {
 
 	switch(status) {
 		case STATUS_NOT_RUNNING:
-			status_str = "STATUS_NOT_RUNNING";
+			status_str = "STATUS_NOT_RUNNING\n---";
 			break;
 		case STATUS_RESTORING_CHKPT:
 			status_str = "STATUS_RESTORING_CHKPT";
