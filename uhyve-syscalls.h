@@ -54,7 +54,8 @@ typedef struct {
 
 typedef enum {
 	PFAULT_FATAL = 0,
-	PFAULT_HEAP
+	PFAULT_HEAP,
+	PFAULT_BSS
 } pfault_type_t;
 
 typedef struct {

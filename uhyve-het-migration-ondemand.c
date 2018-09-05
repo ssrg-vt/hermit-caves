@@ -249,7 +249,7 @@ int connect_to_page_response_server()
 }
 
 int send_page_request(section_t type, uint64_t address, char *buffer,
-		uint8_t npages) {
+		uint8_t npages, uint64_t page_size) {
 	int valread, i;
 	size_t size = 0;
 	struct packet send_packet;
@@ -261,7 +261,7 @@ int send_page_request(section_t type, uint64_t address, char *buffer,
 				0) == -1)
 		err(EXIT_FAILURE, "Page request send failed.");
 
-	int total_sz = PAGE_SIZE*npages;
+	int total_sz = page_size*npages;
 	while(size < total_sz)	{
 		valread = recv(client_socket ,(void*)(buffer+size), total_sz-size, 0);
 		if(valread == -1) {

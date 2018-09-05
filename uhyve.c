@@ -557,8 +557,17 @@ static int vcpu_loop(void)
 					break;
 				}
 
-				if(migrate_resume && arg->type == PFAULT_HEAP) {
-					printf("Page fault for BSS\n");
+				if(migrate_resume && arg->type == PFAULT_BSS) {
+					/* On-demand heap migration*/
+					if(rmem_bss(arg->vaddr, arg->paddr, arg->npages)) {
+						printf("Could not handle remote heap request @0x%x\n",
+								arg->vaddr);
+						arg->success = 0;
+					}
+					else
+						arg->success = 1;
+
+					break;
 				}
 
 				printf("Guest page fault @0x%x (RIP @0x%x)\n", arg->vaddr, arg->rip);

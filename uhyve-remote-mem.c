@@ -35,6 +35,7 @@ typedef unsigned int 		tid_t;
 #define HEAP_PROVIDER		HEAP_PROVIDER_NET
 
 #define PAGE_SIZE_HEAP		4096
+#define PAGE_SIZE_BSS		4096
 
 static int heap_file_fd;
 static chkpt_metadata_t md;
@@ -42,10 +43,7 @@ static uint64_t remote_size_left;
 extern uint8_t* guest_mem;
 extern int client_socket;
 
-static int rmem_heap_file_init(const char *mdata_file_path,
-		const char *heap_file_path) {
-
-	int mdata_fd;
+static int rmem_heap_file_init(const char *heap_file_path) {
 
 	heap_file_fd = open(heap_file_path, O_RDONLY, 0);
 	if(heap_file_fd == -1) {
@@ -53,49 +51,44 @@ static int rmem_heap_file_init(const char *mdata_file_path,
 		return -1;
 	}
 
-	mdata_fd = open(mdata_file_path, O_RDONLY, 0);
-	if(mdata_fd == -1) {
-		perror("opening mdata file");
-		return -1;
-	}
-
-	if(read(mdata_fd, &md, sizeof(chkpt_metadata_t)) !=
-			sizeof(chkpt_metadata_t)) {
-		perror("reading mdata");
-		return -1;
-	}
-
-	close(mdata_fd);
 	return 0;
 }
 
-static int rmem_heap_net_init(const char *mdata_file_path) {
-
-	int mdata_fd;
-
-	mdata_fd = open(mdata_file_path, O_RDONLY, 0);
-	if(mdata_fd == -1) {
-		perror("opening mdata file");
-		return -1;
-	}
-
-	if(read(mdata_fd, &md, sizeof(chkpt_metadata_t)) !=
-			sizeof(chkpt_metadata_t)) {
-		perror("reading mdata");
-		return -1;
-	}
-
-	close(mdata_fd);
+static int rmem_heap_net_init() {
 
 	/* TODO: sum heap + data + bss? */
-	remote_size_left = md.heap_size;
+	remote_size_left += md.heap_size;
+
+	return 0;
+}
+
+static int rmem_bss_net_init() {
+
+	remote_size_left += md.bss_size;
 
 	return 0;
 }
 
 int rmem_init(void) {
+
+	int mdata_fd;
+
+	mdata_fd = open(CHKPT_MDATA_FILE, O_RDONLY, 0);
+	if(mdata_fd == -1) {
+		perror("opening mdata file");
+		return -1;
+	}
+
+	if(read(mdata_fd, &md, sizeof(chkpt_metadata_t)) !=
+			sizeof(chkpt_metadata_t)) {
+		perror("reading mdata");
+		return -1;
+	}
+
+	close(mdata_fd);
+
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file_init(CHKPT_MDATA_FILE, CHKPT_HEAP_FILE);
+	return rmem_heap_file_init(CHKPT_HEAP_FILE);
 #else
 
 	char *str = getenv("HERMIT_MIGRATE_SERVER");
@@ -105,7 +98,13 @@ int rmem_init(void) {
 	if((client_socket = connect_to_page_response_server()) == -1)
 		return -1;
 
-	return rmem_heap_net_init(CHKPT_MDATA_FILE);
+	if(rmem_heap_net_init() < 0)
+		return -1;
+
+	if(rmem_bss_net_init() < 0)
+		return -1;
+
+	return 0;
 #endif
 }
 
@@ -119,11 +118,21 @@ static int rmem_heap_net_end(void) {
 	return 0;
 }
 
+static int rmem_bss_net_end(void) {
+	return 0;
+}
+
 int rmem_end(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_end();
 #else
-	return rmem_heap_net_end();
+	if(rmem_heap_net_end() < 0)
+		return -1;
+
+	if(rmem_bss_net_end() < 0)
+		return -1;
+
+	return 0;
 #endif
 }
 
@@ -141,7 +150,11 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
 }
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
-	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages);
+	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages, PAGE_SIZE_HEAP);
+}
+
+int rmem_bss_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
+	return send_page_request(SECTION_BSS, vaddr, guest_mem+paddr, npages, PAGE_SIZE_BSS);
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
@@ -155,6 +168,24 @@ int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 	/* If we transferred the entire data set, close the connection FIXME this
 	 * only works for heap now */
 	remote_size_left -= npages*PAGE_SIZE_HEAP;
+	if(!remote_size_left) {
+		/* Popcorn: update status to ready for migration */
+		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+		rmem_end();
+	}
+
+	return ret;
+}
+
+int rmem_bss(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
+	int ret;
+#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
+#else
+	ret = rmem_bss_net(vaddr, paddr, npages);
+#endif
+
+	/* If we transferred the entire data set, close the connection. */
+	remote_size_left -= npages*PAGE_SIZE_BSS;
 	if(!remote_size_left) {
 		/* Popcorn: update status to ready for migration */
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
