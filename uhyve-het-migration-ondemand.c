@@ -36,6 +36,10 @@
 #define PAGE_SIZE 	4096
 #define NI_MAXHOST 	1025
 
+/* Set to 1 to log in a local file, rmem.log, the memory accesses */
+#define TRACE_RMEM_ACCESS	0
+#define TRACE_RMEM_FILE "rmem.log"
+
 extern int client_socket;
 extern __thread int vcpufd;
 extern uint64_t aarch64_virt_to_phys(uint64_t vaddr);
@@ -160,10 +164,22 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	section_t req_type;
 	uint64_t req_addr;
 	uint8_t npages;
+	uint64_t initial_heap_size = heap_size;
 
 	signal(SIGPIPE, handle_broken_pipe);
 
 	struct server_info *server = setup_page_response_server();
+
+#if TRACE_RMEM_ACCESS == 1
+	struct timeval rmem_ts_begin;
+	int rmem_trace_fd = open(TRACE_RMEM_FILE, O_RDWR | O_TRUNC | O_CREAT,
+			S_IRWXU);
+	if(rmem_trace_fd == -1) {
+		fprintf(stderr, "Cannot open %s\n", TRACE_RMEM_FILE);
+		return -1;
+	}
+	gettimeofday(&rmem_ts_begin, NULL);
+#endif
 
 	printf("Client connected!\n");
 	fflush(stdout);
@@ -189,6 +205,17 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
+#if TRACE_RMEM_ACCESS == 1
+		char rmem_str[128];
+		struct timeval ts, ts_relative;
+		gettimeofday(&ts, NULL);
+		timersub(&ts, &rmem_ts_begin, &ts_relative);
+		sprintf(rmem_str, "%ld.%06ld;%llu;%u;%llu;%d\n", ts_relative.tv_sec,
+				ts_relative.tv_usec, req_addr, npages, heap_size,
+				(heap_size*100)/initial_heap_size);
+		if(write(rmem_trace_fd, rmem_str, strlen(rmem_str)) != strlen(rmem_str))
+			err(EXIT_FAILURE, "Issue writing in %s\n", TRACE_RMEM_FILE);
+#endif
 		ret = send_page_response(server->socket, req_addr,	npages);
 		if(ret == -1)
 			goto clean;
@@ -200,6 +227,9 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	}
 
 clean:
+#if TRACE_RMEM_ACCESS == 1
+	close(rmem_trace_fd);
+#endif
 	printf("Closing Server\n");
 	close(server->fd);
 	close(server->socket);

@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE 500 /* for pread */
-
 #include "uhyve-remote-mem.h"
 
 #include <sys/types.h>
