@@ -80,6 +80,10 @@ static pthread_t net_thread;
 static int* vcpu_fds = NULL;
 static pthread_mutex_t kvm_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* Keep track of the guest memory usage */
+#define MEMORY_USAGE_FILENAME ".memory"
+static int mem_usage_fd = -1;
+
 extern bool verbose;
 
 static char* guest_path = NULL;
@@ -227,6 +231,9 @@ static void uhyve_atexit(void)
 
 	/* Popcorn: set status to not running */
 	het_migration_set_status(STATUS_NOT_RUNNING);
+
+	/* Popcorn: close memory usage file */
+	close(mem_usage_fd);
 }
 
 static void* wait_for_packet(void* arg)
@@ -284,6 +291,12 @@ static int vcpu_loop(void)
 		het_migration_set_status(STATUS_RESTORING_CHKPT);
 	else
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+
+	/* Popcorn: open memory usage file */
+	mem_usage_fd = open(MEMORY_USAGE_FILENAME, O_WRONLY | O_TRUNC | O_CREAT,
+			S_IRWXU);
+	if(mem_usage_fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s", MEMORY_USAGE_FILENAME);
 
 	pthread_barrier_wait(&barrier);
 
@@ -522,6 +535,15 @@ static int vcpu_loop(void)
 					het_migration_set_status(STATUS_PULLING_PAGES);
 				else
 					het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+				break;
+			}
+
+			case UHYVE_PORT_MEM_USAGE: {
+				char str[64];
+				uhyve_mem_usage_t *arg = (uhyve_mem_usage_t *)(guest_mem + raddr);
+				sprintf(str, "%llu\n", arg->mem);
+				if(write(mem_usage_fd, str, strlen(str)) != strlen(str))
+					err(EXIT_FAILURE, "Cannot write memory usage");
 				break;
 			}
 

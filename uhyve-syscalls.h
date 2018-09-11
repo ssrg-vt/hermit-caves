@@ -76,4 +76,8 @@ typedef struct {
 	uint64_t bss_size;
 } __attribute__ ((packed)) uhyve_migration_t;
 
+typedef struct {
+	uint64_t mem;
+} __attribute__ ((packed)) uhyve_mem_usage_t;
+
 #endif // UHYVE_SYSCALLS_H
