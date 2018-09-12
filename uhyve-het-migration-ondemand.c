@@ -38,7 +38,14 @@
 
 /* Set to 1 to log in a local file, rmem.log, the memory accesses */
 #define TRACE_RMEM_ACCESS	0
-#define TRACE_RMEM_FILE "rmem.log"
+#define TRACE_RMEM_FILE 	"rmem.log"
+
+/* Set to 1 to time the time of a page/set of pages transfer. WARNING: this
+ * impacts the general performance but it is not intrusive to what it is suppose
+ * to measure */
+#define TIME_ROUND_TRIP		0
+#define ROUND_TRIP_FILE		"roundtrip.log"
+static int round_trip_fd = -1;
 
 extern int client_socket;
 extern __thread int vcpufd;
@@ -172,7 +179,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 
 #if TRACE_RMEM_ACCESS == 1
 	struct timeval rmem_ts_begin;
-	int rmem_trace_fd = open(TRACE_RMEM_FILE, O_RDWR | O_TRUNC | O_CREAT,
+	int rmem_trace_fd = open(TRACE_RMEM_FILE, O_WRONLY | O_TRUNC | O_CREAT,
 			S_IRWXU);
 	if(rmem_trace_fd == -1) {
 		fprintf(stderr, "Cannot open %s\n", TRACE_RMEM_FILE);
@@ -278,6 +285,13 @@ int connect_to_page_response_server()
 	return sock;
 }
 
+int client_exit(void) {
+#if TIME_ROUND_TRIP
+	close(round_trip_fd);
+#endif
+	return 0;
+}
+
 int send_page_request(section_t type, uint64_t address, char *buffer,
 		uint8_t npages) {
 	int valread, i;
@@ -287,6 +301,18 @@ int send_page_request(section_t type, uint64_t address, char *buffer,
 	send_packet.type = type;
 	send_packet.address = address;
 	send_packet.npages = npages;
+
+#if TIME_ROUND_TRIP == 1
+	if(round_trip_fd == -1)
+		round_trip_fd = open(ROUND_TRIP_FILE, O_WRONLY | O_TRUNC | O_CREAT,
+				S_IRWXU);
+	if(round_trip_fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s", ROUND_TRIP_FILE);
+
+	struct timeval start;
+	gettimeofday(&start, NULL);
+#endif
+
 	if(send(client_socket, (const void*)(&send_packet), sizeof(struct packet),
 				0) == -1)
 		err(EXIT_FAILURE, "Page request send failed.");
@@ -301,6 +327,16 @@ int send_page_request(section_t type, uint64_t address, char *buffer,
 
 		size += valread;
 	}
+
+#if TIME_ROUND_TRIP == 1
+	char str[32];
+	struct timeval stop, total;
+	gettimeofday(&stop, NULL);
+	timersub(&stop, &start, &total);
+	sprintf(str, "%u;%ld.%06ld\n", npages, total.tv_sec, total.tv_usec);
+	if(write(round_trip_fd, str, strlen(str)) != strlen(str))
+		err(EXIT_FAILURE, "Cannot write in %s", ROUND_TRIP_FILE);
+#endif
 
 	return 0;
 }

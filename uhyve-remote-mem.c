@@ -154,6 +154,9 @@ int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 	 * only works for heap now */
 	remote_size_left -= npages*PAGE_SIZE_HEAP;
 	if(!remote_size_left) {
+#if HEAP_PROVIDER_FILE == HEAP_PROVIDER_NET
+		client_exit();
+#endif
 		/* Popcorn: update status to ready for migration */
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 		rmem_end();

@@ -31,7 +31,7 @@
  * 24.4.2017: add checkpoint/restore support,
  *            remove memory limit
  */
-
+#define _XOPEN_SOURCE 500
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
