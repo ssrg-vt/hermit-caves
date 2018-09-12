@@ -33,7 +33,6 @@
 #define CHKPT_TLS_FILE		"tls.bin"
 #define CHKPT_FDS_FILE		"fds.bin"
 
-#define PAGE_SIZE 	4096
 #define NI_MAXHOST 	1025
 
 extern int client_socket;
@@ -93,12 +92,12 @@ struct server_info* setup_page_response_server() {
  * 1 if the remote client exited normally
  */
 int receive_page_request(struct server_info *server, section_t *type,
-		uint64_t *addr, uint8_t *npages) {
+		uint64_t *addr, uint8_t *npages, uint64_t *page_size) {
 	int valread;
 	struct packet recv_packet;
 
 	// Read received data
-    valread = read(server->socket , &recv_packet, sizeof(struct packet));
+	valread = read(server->socket , &recv_packet, sizeof(struct packet));
 	if(valread != sizeof(struct packet)) {
 		/* This may indicate that the client simply finished execution - FIXME
 		 * there might be other error conditions here that are actually valid
@@ -117,6 +116,7 @@ int receive_page_request(struct server_info *server, section_t *type,
 	*type = recv_packet.type;
 	*addr = recv_packet.address;
 	*npages = recv_packet.npages;
+	*page_size = recv_packet.page_size;
 
 	return 0;
 }
@@ -134,16 +134,16 @@ uint64_t guest_virt_to_phys(uint64_t vaddr) {
 #endif
 }
 
-int send_page_response(int sock, uint64_t vaddr, uint8_t npages) {
-	char *buffer = malloc(npages * PAGE_SIZE);
+int send_page_response(int sock, uint64_t vaddr, uint8_t npages, uint64_t page_size) {
+	char *buffer = malloc(npages * page_size);
 
 	/* Fill buffer with pages from vaddr then send it */
 	for(int i=0; i<npages; i++) {
-		uint64_t paddr = guest_virt_to_phys(vaddr+i*PAGE_SIZE);
-		memcpy(buffer + i*PAGE_SIZE, guest_mem + paddr, PAGE_SIZE);
+		uint64_t paddr = guest_virt_to_phys(vaddr + i*page_size);
+		memcpy(buffer + i * page_size, guest_mem + paddr, page_size);
 	}
 
-	if(send(sock, buffer, PAGE_SIZE*npages, 0) == -1)
+	if(send(sock, buffer, page_size*npages, 0) == -1)
 		err(EXIT_FAILURE, "Remote server cannot send page data");
 
 	free(buffer);
@@ -160,6 +160,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	section_t req_type;
 	uint64_t req_addr;
 	uint8_t npages;
+	uint64_t page_size;
 
 	signal(SIGPIPE, handle_broken_pipe);
 
@@ -169,18 +170,18 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 	fflush(stdout);
 
 	while(run_server) {
-		receive_page_request(server, &req_type, &req_addr, &npages);
+		receive_page_request(server, &req_type, &req_addr, &npages, &page_size);
 #if 0
 		printf("Packet received, type: %s, addr: 0x%llu, npages: %u\n",
 				(req_type == SECTION_HEAP) ? "heap" : "bss", req_addr, npages);
 #endif
 		switch(req_type) {
 			case SECTION_BSS:
-				bss_size -= PAGE_SIZE*npages;
+				bss_size -= page_size*npages;
 				break;
 
 			case SECTION_HEAP:
-				heap_size -= PAGE_SIZE*npages;
+				heap_size -= page_size*npages;
 				break;
 
 			default:
@@ -189,11 +190,11 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 				goto clean;
 		}
 
-		ret = send_page_response(server->socket, req_addr,	npages);
+		ret = send_page_response(server->socket, req_addr, npages, page_size);
 		if(ret == -1)
 			goto clean;
 
-		if(heap_size == 0) { // && bss_size == 0)
+		if((heap_size == 0)  && (bss_size == 0)) {
 			printf("Full remote memory served\n");
 			break;
 		}
@@ -249,7 +250,7 @@ int connect_to_page_response_server()
 }
 
 int send_page_request(section_t type, uint64_t address, char *buffer,
-		uint8_t npages, uint64_t page_size) {
+		uint8_t npages, uint32_t page_size) {
 	int valread, i;
 	size_t size = 0;
 	struct packet send_packet;
@@ -257,6 +258,8 @@ int send_page_request(section_t type, uint64_t address, char *buffer,
 	send_packet.type = type;
 	send_packet.address = address;
 	send_packet.npages = npages;
+	send_packet.page_size = page_size;
+
 	if(send(client_socket, (const void*)(&send_packet), sizeof(struct packet),
 				0) == -1)
 		err(EXIT_FAILURE, "Page request send failed.");

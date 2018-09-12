@@ -64,7 +64,8 @@ typedef struct {
 	uint64_t paddr;
 	pfault_type_t type;
 	uint8_t npages;
-	int success;
+	uint8_t success;
+	uint32_t page_size;
 } __attribute__ ((packed)) uhyve_pfault_t;
 
 typedef struct {
