@@ -68,6 +68,13 @@ static int rmem_bss_net_init() {
 	return 0;
 }
 
+static int rmem_data_net_init() {
+
+	remote_size_left += md.data_size;
+
+	return 0;
+}
+
 int rmem_init(void) {
 
 	int mdata_fd;
@@ -103,6 +110,9 @@ int rmem_init(void) {
 	if(rmem_bss_net_init() < 0)
 		return -1;
 
+	if(rmem_data_net_init() < 0)
+		return -1;
+
 	return 0;
 #endif
 }
@@ -120,6 +130,10 @@ static int rmem_bss_net_end(void) {
 	return 0;
 }
 
+static int rmem_data_net_end(void) {
+	return 0;
+}
+
 int rmem_end(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_end();
@@ -129,6 +143,9 @@ int rmem_end(void) {
 		return -1;
 
 	if(rmem_bss_net_end() < 0)
+		return -1;
+
+	if(rmem_data_net_end() < 0)
 		return -1;
 
 	return 0;
@@ -156,6 +173,10 @@ int rmem_bss_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_s
 	return send_page_request(SECTION_BSS, vaddr, guest_mem+paddr, npages, page_size);
 }
 
+int rmem_data_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
+	return send_page_request(SECTION_DATA, vaddr, guest_mem+paddr, npages, page_size);
+}
+
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
 	int ret;
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
@@ -181,6 +202,24 @@ int rmem_bss(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size)
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 #else
 	ret = rmem_bss_net(vaddr, paddr, npages, page_size);
+#endif
+
+	/* If we transferred the entire data set, close the connection. */
+	remote_size_left -= npages*page_size;
+	if(!remote_size_left) {
+		/* Popcorn: update status to ready for migration */
+		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+		rmem_end();
+	}
+
+	return ret;
+}
+
+int rmem_data(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
+	int ret;
+#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
+#else
+	ret = rmem_data_net(vaddr, paddr, npages, page_size);
 #endif
 
 	/* If we transferred the entire data set, close the connection. */

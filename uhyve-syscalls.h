@@ -55,7 +55,8 @@ typedef struct {
 typedef enum {
 	PFAULT_FATAL = 0,
 	PFAULT_HEAP,
-	PFAULT_BSS
+	PFAULT_BSS,
+	PFAULT_DATA
 } pfault_type_t;
 
 typedef struct {
@@ -71,6 +72,7 @@ typedef struct {
 typedef struct {
 	uint64_t heap_size;
 	uint64_t bss_size;
+	uint64_t data_size;
 } __attribute__ ((packed)) uhyve_migration_t;
 
 #endif // UHYVE_SYSCALLS_H

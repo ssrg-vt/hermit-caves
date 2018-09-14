@@ -154,7 +154,7 @@ void handle_broken_pipe() {
 	run_server = 0;
 }
 
-int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
+int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t data_size) {
 	const char* file_name;
 	int ret = 0;
 	section_t req_type;
@@ -178,6 +178,10 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size) {
 		switch(req_type) {
 			case SECTION_BSS:
 				bss_size -= page_size*npages;
+				break;
+
+			case SECTION_DATA:
+				data_size -= page_size*npages;
 				break;
 
 			case SECTION_HEAP:

@@ -13,6 +13,7 @@ int ondemand_migration_port;
 typedef enum {
 	SECTION_HEAP = 0,
 	SECTION_BSS,
+	SECTION_DATA,
 	SECTION_CLOSE
 } section_t;
 
@@ -28,7 +29,7 @@ struct packet {
 	uint32_t page_size;
 };
 
-int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size);
+int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t data_size);
 int send_page_request(section_t type, uint64_t address, char *buffer,
 		uint8_t npages, uint32_t page_size);
 int connect_to_page_response_server();

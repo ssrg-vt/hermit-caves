@@ -529,7 +529,7 @@ static int vcpu_loop(void)
 					/* Popcorn: set status to serving remote pages */
 					het_migration_set_status(STATUS_SERVING_PAGES);
 					printf("Uhyve: switching to server mode\n");
-					on_demand_page_migration(arg->heap_size, arg->bss_size);
+					on_demand_page_migration(arg->heap_size, arg->bss_size, arg->data_size);
 				}
 
 				/* Popcorn: status will be set to not running in uhyve_atexit */
@@ -558,8 +558,23 @@ static int vcpu_loop(void)
 				}
 
 				if(migrate_resume && arg->type == PFAULT_BSS) {
-					/* On-demand heap migration*/
+					printf("BSS requested\n");
+					/* On-demand bss migration*/
 					if(rmem_bss(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
+						printf("Could not handle remote heap request @0x%x\n",
+								arg->vaddr);
+						arg->success = 0;
+					}
+					else
+						arg->success = 1;
+
+					break;
+				}
+
+				if(migrate_resume && arg->type == PFAULT_DATA) {
+					printf("DATA requested\n");
+					/* On-demand data migration*/
+					if(rmem_data(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
 						printf("Could not handle remote heap request @0x%x\n",
 								arg->vaddr);
 						arg->success = 0;
