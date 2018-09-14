@@ -710,7 +710,6 @@ int load_kernel(uint8_t* mem, char* path)
 			}
 
 			*((uint64_t*) (mem+paddr-GUEST_OFFSET + 0xbc)) = (uint64_t) guest_mem;
-			// TODO FIXUP OFFSETS!!
 			if (verbose)
 				*((uint32_t*) (mem+paddr-GUEST_OFFSET + 0x194)) = (uint32_t) UHYVE_UART_PORT;
 		}

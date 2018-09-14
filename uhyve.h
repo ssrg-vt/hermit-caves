@@ -45,6 +45,7 @@
 #define UHYVE_PORT_PFAULT		0x511
 #define UHYVE_PORT_PRE_MIGRATE	0x512 /* 1. Starting checkpointing process */
 #define UHYVE_PORT_CHKPT_RESTORED	0x513
+#define UHYVE_PORT_MEM_USAGE	0x514
 
 // Networkports
 #define UHYVE_PORT_NETINFO              0x600

@@ -52,6 +52,11 @@ typedef struct {
 	int whence;
 } __attribute__((packed)) uhyve_lseek_t;
 
+typedef struct {
+	char *filename;
+	int ret;
+} __attribute__ ((packed)) uhyve_unlink_t;
+
 typedef enum {
 	PFAULT_FATAL = 0,
 	PFAULT_HEAP,
@@ -74,5 +79,9 @@ typedef struct {
 	uint64_t bss_size;
 	uint64_t data_size;
 } __attribute__ ((packed)) uhyve_migration_t;
+
+typedef struct {
+	uint64_t mem;
+} __attribute__ ((packed)) uhyve_mem_usage_t;
 
 #endif // UHYVE_SYSCALLS_H

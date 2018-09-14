@@ -31,7 +31,7 @@
  * 24.4.2017: add checkpoint/restore support,
  *            remove memory limit
  */
-
+#define _XOPEN_SOURCE 500
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
@@ -79,6 +79,10 @@ static bool migration = false;
 static pthread_t net_thread;
 static int* vcpu_fds = NULL;
 static pthread_mutex_t kvm_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Keep track of the guest memory usage */
+#define MEMORY_USAGE_FILENAME ".memory"
+static int mem_usage_fd = -1;
 
 extern bool verbose;
 
@@ -227,6 +231,9 @@ static void uhyve_atexit(void)
 
 	/* Popcorn: set status to not running */
 	het_migration_set_status(STATUS_NOT_RUNNING);
+
+	/* Popcorn: close memory usage file */
+	close(mem_usage_fd);
 }
 
 static void* wait_for_packet(void* arg)
@@ -284,6 +291,12 @@ static int vcpu_loop(void)
 		het_migration_set_status(STATUS_RESTORING_CHKPT);
 	else
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
+
+	/* Popcorn: open memory usage file */
+	mem_usage_fd = open(MEMORY_USAGE_FILENAME, O_WRONLY | O_TRUNC | O_CREAT,
+			S_IRWXU);
+	if(mem_usage_fd == -1)
+		err(EXIT_FAILURE, "Cannot open %s", MEMORY_USAGE_FILENAME);
 
 	pthread_barrier_wait(&barrier);
 
@@ -470,6 +483,12 @@ static int vcpu_loop(void)
 					break;
 				}
 
+			case UHYVE_PORT_UNLINK: {
+					uhyve_unlink_t *arg = (uhyve_unlink_t *)(guest_mem+raddr);
+					arg->ret = unlink(guest_mem + (size_t)arg->filename);
+					break;
+			}
+
 			case UHYVE_PORT_CMDSIZE: {
 					int i;
 					uhyve_cmdsize_t *val = (uhyve_cmdsize_t *) (guest_mem+raddr);
@@ -519,10 +538,22 @@ static int vcpu_loop(void)
 				break;
 			}
 
+			case UHYVE_PORT_MEM_USAGE: {
+				char str[64];
+				uhyve_mem_usage_t *arg = (uhyve_mem_usage_t *)(guest_mem + raddr);
+				sprintf(str, "%llu\n", arg->mem);
+				if(write(mem_usage_fd, str, strlen(str)) != strlen(str))
+					err(EXIT_FAILURE, "Cannot write memory usage");
+				break;
+			}
+
 			case UHYVE_PORT_MIGRATE: {
 				uhyve_migration_t *arg = (uhyve_migration_t *)(guest_mem + raddr);
 				flock(flock_fd, LOCK_UN);
 				close(flock_fd);
+
+				/* Sync the FS for migrated files to be consistent */
+				sync();
 
 				/* Switch to remote page server if needed */
 				if(!full_chkpt_save) {
@@ -558,7 +589,6 @@ static int vcpu_loop(void)
 				}
 
 				if(migrate_resume && arg->type == PFAULT_BSS) {
-					printf("BSS requested\n");
 					/* On-demand bss migration*/
 					if(rmem_bss(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
 						printf("Could not handle remote heap request @0x%x\n",
@@ -572,7 +602,6 @@ static int vcpu_loop(void)
 				}
 
 				if(migrate_resume && arg->type == PFAULT_DATA) {
-					printf("DATA requested\n");
 					/* On-demand data migration*/
 					if(rmem_data(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
 						printf("Could not handle remote heap request @0x%x\n",
