@@ -53,7 +53,6 @@ static int rmem_heap_file_init(const char *heap_file_path) {
 
 static int rmem_heap_net_init() {
 
-	/* TODO: sum heap + data + bss? */
 	remote_size_left += md.heap_size;
 
 	return 0;
@@ -163,8 +162,8 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
 	return 0;
 }
 
-int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
-	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages, PAGE_SIZE_HEAP);
+int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
+	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_bss_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
@@ -175,17 +174,17 @@ int rmem_data_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_
 	return send_page_request(SECTION_DATA, vaddr, guest_mem+paddr, npages, page_size);
 }
 
-int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages) {
+int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
 	int ret;
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	ret = rmem_heap_file(vaddr, paddr, npages);
 #else
-	ret = rmem_heap_net(vaddr, paddr, npages);
+	ret = rmem_heap_net(vaddr, paddr, npages, page_size);
 #endif
 
 	/* If we transferred the entire data set, close the connection FIXME this
 	 * only works for heap now */
-	remote_size_left -= npages*PAGE_SIZE_HEAP;
+	remote_size_left -= npages*page_size;
 	if(!remote_size_left) {
 #if HEAP_PROVIDER_FILE == HEAP_PROVIDER_NET
 		client_exit();

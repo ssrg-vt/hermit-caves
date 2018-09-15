@@ -577,7 +577,7 @@ static int vcpu_loop(void)
 
 				if(migrate_resume && arg->type == PFAULT_HEAP) {
 					/* On-demand heap migration*/
-					if(rmem_heap(arg->vaddr, arg->paddr, arg->npages)) {
+					if(rmem_heap(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
 						printf("Could not handle remote heap request @0x%x\n",
 								arg->vaddr);
 						arg->success = 0;
