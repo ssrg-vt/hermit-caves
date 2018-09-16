@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 500  /* For pread, TODO remove file support */
+
 #include "uhyve-remote-mem.h"
 
 #include <sys/types.h>
@@ -119,32 +121,11 @@ static int rmem_heap_file_end(void) {
 	return 0;
 }
 
-static int rmem_heap_net_end(void) {
-	return 0;
-}
-
-static int rmem_bss_net_end(void) {
-	return 0;
-}
-
-static int rmem_data_net_end(void) {
-	return 0;
-}
-
 int rmem_end(void) {
 #if HEAP_PROVIDER == HEAP_PROVIDER_FILE
 	return rmem_heap_file_end();
 #else
 	close(client_socket);
-	if(rmem_heap_net_end() < 0)
-		return -1;
-
-	if(rmem_bss_net_end() < 0)
-		return -1;
-
-	if(rmem_data_net_end() < 0)
-		return -1;
-
 	return 0;
 #endif
 }
@@ -163,15 +144,15 @@ int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
 }
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(SECTION_HEAP, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(AREA_HEAP, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_bss_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(SECTION_BSS, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(AREA_BSS, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_data_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(SECTION_DATA, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(AREA_DATA, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {

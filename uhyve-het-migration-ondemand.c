@@ -102,7 +102,7 @@ struct server_info* setup_page_response_server() {
  * -1 on error
  * 1 if the remote client exited normally
  */
-int receive_page_request(struct server_info *server, section_t *type,
+int receive_page_request(struct server_info *server, area_t *type,
 		uint64_t *addr, uint8_t *npages, uint64_t *page_size) {
 	int valread;
 	struct packet recv_packet;
@@ -168,11 +168,13 @@ void handle_broken_pipe() {
 int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t data_size) {
 	const char* file_name;
 	int ret = 0;
-	section_t req_type;
+	area_t req_type;
 	uint64_t req_addr;
 	uint8_t npages;
 	uint64_t page_size;
 	uint64_t initial_heap_size = heap_size;
+	uint64_t initial_bss_size = bss_size;
+	uint64_t initial_data_size = data_size;
 
 	signal(SIGPIPE, handle_broken_pipe);
 
@@ -194,20 +196,32 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 
 	while(run_server) {
 		receive_page_request(server, &req_type, &req_addr, &npages, &page_size);
+		/* FIXME I see a lot of requests for a single page while most of the
+		 * reqquest should be 16 pages */
 #if 0
-		printf("Packet received, type: %s, addr: 0x%llu, npages: %u\n",
-				(req_type == SECTION_HEAP) ? "heap" : "bss", req_addr, npages);
+		char *type_str;
+		if(req_type == SECTION_HEAP)
+			type_str = "heap";
+		else if (req_type == SECTION_BSS)
+			type_str = "bss";
+		else if (req_type == SECTION_DATA)
+			type_str = "data";
+		else
+			type_str = "?";
+
+		printf("Packet received, type: %s, addr: 0x%llu, npages: %u, "
+				"psize: %llu\n", type_str, req_addr, npages, page_size);
 #endif
 		switch(req_type) {
-			case SECTION_BSS:
+			case AREA_BSS:
 				bss_size -= page_size*npages;
 				break;
 
-			case SECTION_DATA:
+			case AREA_DATA:
 				data_size -= page_size*npages;
 				break;
 
-			case SECTION_HEAP:
+			case AREA_HEAP:
 				heap_size -= page_size*npages;
 				break;
 
@@ -222,9 +236,16 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 		struct timeval ts, ts_relative;
 		gettimeofday(&ts, NULL);
 		timersub(&ts, &rmem_ts_begin, &ts_relative);
-		sprintf(rmem_str, "%ld.%06ld;%llu;%u;%llu;%d\n", ts_relative.tv_sec,
-				ts_relative.tv_usec, req_addr, npages, heap_size,
-				(heap_size*100)/initial_heap_size);
+		/* Format: timestamp; address; number of pages; heap size left to
+		 * serve (bytes);  heap size left to serve (%); bss size left to serve
+		 * (bytes); bss size left to serve (%); data size left to serve (bytes);
+		 * data size left to serve (%) */
+		int heap_pct = (heap_size*100)/initial_heap_size;
+		int bss_pct = (bss_size*100)/initial_bss_size;
+		int data_pct = (data_size*100)/initial_data_size;
+		sprintf(rmem_str, "%ld.%06ld;%llu;%u;%llu;%d;%d;%d;%d;%d;%d\n",
+				ts_relative.tv_sec, ts_relative.tv_usec, req_addr, npages,
+				heap_size, heap_pct, bss_size, bss_pct, data_size, data_pct);
 		if(write(rmem_trace_fd, rmem_str, strlen(rmem_str)) != strlen(rmem_str))
 			err(EXIT_FAILURE, "Issue writing in %s\n", TRACE_RMEM_FILE);
 #endif
@@ -232,7 +253,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 		if(ret == -1)
 			goto clean;
 
-		if((heap_size == 0)  && (bss_size == 0)) {
+		if(!heap_size && !bss_size && !data_size) {
 			printf("Full remote memory served\n");
 			break;
 		}
@@ -297,7 +318,7 @@ int client_exit(void) {
 	return 0;
 }
 
-int send_page_request(section_t type, uint64_t address, char *buffer,
+int send_page_request(area_t type, uint64_t address, char *buffer,
 		uint8_t npages, uint32_t page_size) {
 	int valread, i;
 	size_t size = 0;
