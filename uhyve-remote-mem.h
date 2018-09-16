@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size);
-int rmem_bss(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size);
-int rmem_data(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size);
+#include "uhyve-syscalls.h"
+
 int rmem_init(void);
+int rmem(pfault_type_t type, uint64_t vaddr, char *buf, uint8_t npages,
+		uint64_t page_size);
 
 #endif /* UHYVE_REMOTE_MEM_H */

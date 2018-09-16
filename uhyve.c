@@ -575,41 +575,16 @@ static int vcpu_loop(void)
 				char addr2line_call[128];
 				uhyve_pfault_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
 
-				if(migrate_resume && arg->type == PFAULT_HEAP) {
-					/* On-demand heap migration*/
-					if(rmem_heap(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
-						printf("Could not handle remote heap request @0x%x\n",
-								arg->vaddr);
+				if(migrate_resume && (arg->type == PFAULT_HEAP ||
+							arg->type == PFAULT_BSS ||
+							arg->type == PFAULT_DATA)) {
+					/* On-demand memory migration*/
+					if(rmem(arg->type, arg->vaddr,	guest_mem+arg->paddr,
+								arg->npages, arg->page_size)) {
+						fprintf(stderr, "Could not handle remote memory "
+								"request @0x%x\n", arg->vaddr);
 						arg->success = 0;
-					}
-					else
-						arg->success = 1;
-
-					break;
-				}
-
-				if(migrate_resume && arg->type == PFAULT_BSS) {
-					/* On-demand bss migration*/
-					if(rmem_bss(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
-						printf("Could not handle remote heap request @0x%x\n",
-								arg->vaddr);
-						arg->success = 0;
-					}
-					else
-						arg->success = 1;
-
-					break;
-				}
-
-				if(migrate_resume && arg->type == PFAULT_DATA) {
-					/* On-demand data migration*/
-					if(rmem_data(arg->vaddr, arg->paddr, arg->npages, arg->page_size)) {
-						printf("Could not handle remote heap request @0x%x\n",
-								arg->vaddr);
-						arg->success = 0;
-					}
-					else
-						arg->success = 1;
+					} else arg->success = 1;
 
 					break;
 				}
