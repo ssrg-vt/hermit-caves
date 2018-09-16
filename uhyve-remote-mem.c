@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE 500  /* For pread, TODO remove file support */
-
 #include "uhyve-remote-mem.h"
 
 #include <sys/types.h>
@@ -25,52 +23,16 @@ typedef unsigned int 		tid_t;
 #include "../include/hermit/migration-aarch64-regs.h"
 #include "../include/hermit/migration-chkpt.h"
 
-/* We support:
- * - the 'file' remote heap provider, which involves dumping the applications
- *   state to a file and having it shared on NFS between host and target
- * - the 'net' which sets up a tcp/ip connection between the host and target
- *   and serves pages requests directly from the source guest memory */
-#define HEAP_PROVIDER_FILE	0
-#define HEAP_PROVIDER_NET	1
-#define HEAP_PROVIDER		HEAP_PROVIDER_NET
-
 #define PAGE_SIZE_HEAP		4096
 
-static int heap_file_fd;
 static chkpt_metadata_t md;
 static uint64_t remote_size_left;
 extern uint8_t* guest_mem;
 extern int client_socket;
 
-static int rmem_heap_file_init(const char *heap_file_path) {
-
-	heap_file_fd = open(heap_file_path, O_RDONLY, 0);
-	if(heap_file_fd == -1) {
-		perror("opening heap file");
-		return -1;
-	}
-
-	return 0;
-}
-
-static int rmem_heap_net_init() {
-
-	remote_size_left += md.heap_size;
-
-	return 0;
-}
-
-static int rmem_bss_net_init() {
-
-	remote_size_left += md.bss_size;
-
-	return 0;
-}
-
-static int rmem_data_net_init() {
-
-	remote_size_left += md.data_size;
-
+static int rmem_net_init(uint64_t heap_size, uint64_t bss_size,
+		uint64_t data_size) {
+	remote_size_left = heap_size + bss_size + data_size;
 	return 0;
 }
 
@@ -92,10 +54,6 @@ int rmem_init(void) {
 
 	close(mdata_fd);
 
-#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file_init(CHKPT_HEAP_FILE);
-#else
-
 	char *str = getenv("HERMIT_MIGRATE_SERVER");
 	if(!str || !atoi(str))
 		return 0;
@@ -103,73 +61,38 @@ int rmem_init(void) {
 	if((client_socket = connect_to_page_response_server()) == -1)
 		return -1;
 
-	if(rmem_heap_net_init() < 0)
+	if(rmem_net_init(md.heap_size, md.bss_size, md.data_size))
 		return -1;
 
-	if(rmem_bss_net_init() < 0)
-		return -1;
-
-	if(rmem_data_net_init() < 0)
-		return -1;
-
-	return 0;
-#endif
-}
-
-static int rmem_heap_file_end(void) {
-	close(heap_file_fd);
 	return 0;
 }
 
 int rmem_end(void) {
-#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	return rmem_heap_file_end();
-#else
 	close(client_socket);
-	return 0;
-#endif
-}
-
-int rmem_heap_file(uint64_t vaddr, uint64_t paddr, int npages) {
-	uint64_t page_floor = vaddr - (vaddr % PAGE_SIZE_HEAP);
-	uint64_t heap_offset = page_floor - md.heap_start;
-
-	if(pread(heap_file_fd, guest_mem + paddr, PAGE_SIZE_HEAP*npages,
-				heap_offset) != PAGE_SIZE_HEAP) {
-		fprintf(stderr, "Cannot read heap file at offset 0x%x\n", heap_offset);
-		return -1;
-	}
-
 	return 0;
 }
 
 int rmem_heap_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(AREA_HEAP, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(PFAULT_HEAP, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_bss_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(AREA_BSS, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(PFAULT_BSS, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_data_net(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
-	return send_page_request(AREA_DATA, vaddr, guest_mem+paddr, npages, page_size);
+	return send_page_request(PFAULT_DATA, vaddr, guest_mem+paddr, npages, page_size);
 }
 
 int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
 	int ret;
-#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-	ret = rmem_heap_file(vaddr, paddr, npages);
-#else
 	ret = rmem_heap_net(vaddr, paddr, npages, page_size);
-#endif
 
 	/* If we transferred the entire data set, close the connection FIXME this
 	 * only works for heap now */
 	remote_size_left -= npages*page_size;
 	if(!remote_size_left) {
-#if HEAP_PROVIDER_FILE == HEAP_PROVIDER_NET
 		client_exit();
-#endif
 		/* Popcorn: update status to ready for migration */
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 		rmem_end();
@@ -180,10 +103,7 @@ int rmem_heap(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size
 
 int rmem_bss(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
 	int ret;
-#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-#else
 	ret = rmem_bss_net(vaddr, paddr, npages, page_size);
-#endif
 
 	/* If we transferred the entire data set, close the connection. */
 	remote_size_left -= npages*page_size;
@@ -198,10 +118,7 @@ int rmem_bss(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size)
 
 int rmem_data(uint64_t vaddr, uint64_t paddr, uint8_t npages, uint32_t page_size) {
 	int ret;
-#if HEAP_PROVIDER == HEAP_PROVIDER_FILE
-#else
 	ret = rmem_data_net(vaddr, paddr, npages, page_size);
-#endif
 
 	/* If we transferred the entire data set, close the connection. */
 	remote_size_left -= npages*page_size;

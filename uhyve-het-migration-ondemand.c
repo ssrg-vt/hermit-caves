@@ -102,7 +102,7 @@ struct server_info* setup_page_response_server() {
  * -1 on error
  * 1 if the remote client exited normally
  */
-int receive_page_request(struct server_info *server, area_t *type,
+int receive_page_request(struct server_info *server, pfault_type_t *type,
 		uint64_t *addr, uint8_t *npages, uint64_t *page_size) {
 	int valread;
 	struct packet recv_packet;
@@ -168,7 +168,7 @@ void handle_broken_pipe() {
 int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t data_size) {
 	const char* file_name;
 	int ret = 0;
-	area_t req_type;
+	pfault_type_t req_type;
 	uint64_t req_addr;
 	uint8_t npages;
 	uint64_t page_size;
@@ -213,15 +213,15 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 				"psize: %llu\n", type_str, req_addr, npages, page_size);
 #endif
 		switch(req_type) {
-			case AREA_BSS:
+			case PFAULT_BSS:
 				bss_size -= page_size*npages;
 				break;
 
-			case AREA_DATA:
+			case PFAULT_DATA:
 				data_size -= page_size*npages;
 				break;
 
-			case AREA_HEAP:
+			case PFAULT_HEAP:
 				heap_size -= page_size*npages;
 				break;
 
@@ -318,7 +318,7 @@ int client_exit(void) {
 	return 0;
 }
 
-int send_page_request(area_t type, uint64_t address, char *buffer,
+int send_page_request(pfault_type_t type, uint64_t address, char *buffer,
 		uint8_t npages, uint32_t page_size) {
 	int valread, i;
 	size_t size = 0;
