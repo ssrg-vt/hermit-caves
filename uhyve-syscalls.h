@@ -84,4 +84,10 @@ typedef struct {
 	uint64_t mem;
 } __attribute__ ((packed)) uhyve_mem_usage_t;
 
+typedef struct {
+	uint64_t heap_size;
+	uint64_t bss_size;
+	uint64_t data_size;
+} __attribute__ ((packed)) uhyve_init_rmem_t;
+
 #endif // UHYVE_SYSCALLS_H

@@ -200,11 +200,11 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 		 * reqquest should be 16 pages */
 #if 0
 		char *type_str;
-		if(req_type == SECTION_HEAP)
+		if(req_type == PFAULT_HEAP)
 			type_str = "heap";
-		else if (req_type == SECTION_BSS)
+		else if (req_type == PFAULT_BSS)
 			type_str = "bss";
-		else if (req_type == SECTION_DATA)
+		else if (req_type == PFAULT_DATA)
 			type_str = "data";
 		else
 			type_str = "?";

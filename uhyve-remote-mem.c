@@ -13,42 +13,36 @@
 #include "uhyve-het-migration.h"
 #include "uhyve-het-migration-ondemand.h"
 
-/* Hack to avoid two definitions of chkpt_metadata_t (and the default
- * checkpoint filenames). it's not ideal, maybe there is a better solution.
- * Note that the order here is important, for example migration-chkpt.h needs
- * some typedefs from migration-x86-regs.h */
-#define MAX_TASKS			32
-typedef unsigned int 		tid_t;
-#include "../include/hermit/migration-x86-regs.h"
-#include "../include/hermit/migration-aarch64-regs.h"
-#include "../include/hermit/migration-chkpt.h"
 
-static chkpt_metadata_t md;
-static int64_t remote_size_left;
+#define PAGE_BITS				12
+#define HUGE_PAGE_BITS			21
+#define PAGE_SIZE				( 1L << PAGE_BITS)
+#define HUGE_PAGE_SIZE			(1UL << HUGE_PAGE_BITS)
+#define PAGE_MASK				((~0L) << PAGE_BITS)
+#define HUGE_PAGE_MASK			(((~0UL) << HUGE_PAGE_BITS) & ~PG_XD)
+#define PAGE_CEIL(addr)			(((addr) + PAGE_SIZE - 1) & PAGE_MASK)
+#define HUGE_PAGE_CEIL(addr)	(((addr) + HUGE_PAGE_SIZE - 1) & ((~0UL) << HUGE_PAGE_BITS))
+
 extern uint8_t* guest_mem;
 extern int client_socket;
+static int64_t heap_size_left, bss_size_left, data_size_left;
 
-int rmem_init(void) {
-	int mdata_fd;
-
-	mdata_fd = open(CHKPT_MDATA_FILE, O_RDONLY, 0);
-	if(mdata_fd == -1) {
-		perror("opening mdata file");
-		return -1;
-	}
-
-	if(read(mdata_fd, &md, sizeof(chkpt_metadata_t)) !=
-			sizeof(chkpt_metadata_t)) {
-		perror("reading mdata");
-		return -1;
-	}
-
-	close(mdata_fd);
+int rmem_init(uint64_t heap_size, uint64_t bss_size, uint64_t data_size) {
 
 	if((client_socket = connect_to_page_response_server()) == -1)
 		return -1;
 
-	remote_size_left = md.heap_size + md.bss_size + md.data_size;
+	/* Heap is always mapped with 4KB pages */
+	heap_size_left = PAGE_CEIL(heap_size);
+
+	/* BSS and data are mapped with different page sizes on ARM and x86 */
+#ifdef __aarch64__
+	data_size_left = PAGE_CEIL(data_size);
+	bss_size_left = PAGE_CEIL(bss_size);
+#else
+	data_size_left = HUGE_PAGE_CEIL(data_size);
+	bss_size_left = HUGE_PAGE_CEIL(bss_size);
+#endif
 
 	return 0;
 }
@@ -62,8 +56,28 @@ int rmem(pfault_type_t type, uint64_t vaddr, char *buf, uint8_t npages,
 		uint64_t page_size) {
 	int ret = send_page_request(type, vaddr, buf, npages, page_size);
 
-	remote_size_left -= npages*page_size;
-	if(remote_size_left <= 0)
+	if(type == PFAULT_HEAP)
+		heap_size_left -= npages*page_size;
+	else if(type == PFAULT_BSS)
+		bss_size_left -= npages*page_size;
+	else
+		data_size_left -= npages*page_size;
+
+#if 0
+	char *type_str;
+
+	if(type == PFAULT_HEAP)
+		type_str = "heap";
+	else if(type == PFAULT_BSS)
+		type_str = "bss";
+	else
+		type_str = "data";
+
+	printf("Req %d pages from %s left heap: %lld, bss: %lld, data: %lld\n",
+			npages, type_str, heap_size_left, bss_size_left, data_size_left);
+#endif
+
+	if(heap_size_left <= 0  && bss_size_left <= 0 && data_size_left <= 0)
 		rmem_end();
 
 	return ret;

@@ -552,9 +552,6 @@ static int vcpu_loop(void)
 				flock(flock_fd, LOCK_UN);
 				close(flock_fd);
 
-				/* Sync the FS for migrated files to be consistent */
-				sync();
-
 				/* Switch to remote page server if needed */
 				if(!full_chkpt_save) {
 					/* Popcorn: set status to serving remote pages */
@@ -570,6 +567,12 @@ static int vcpu_loop(void)
 				break;
 
 				}
+
+			case UHYVE_PORT_INIT_RMEM: {
+				uhyve_init_rmem_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
+				rmem_init(arg->heap_size, arg->bss_size, arg->data_size);
+				break;
+			}
 
 			case UHYVE_PORT_PFAULT: {
 				char addr2line_call[128];
@@ -759,12 +762,6 @@ int uhyve_init(char *path)
 	if(hermit_migrate_resume) {
 			if(atoi(hermit_migrate_resume) != 0)
 					migrate_resume = true;
-	}
-
-	/* Initialize remote memory access if needed */
-	if(migrate_resume && !full_chkpt_restore) {
-			int ret = rmem_init();
-			if(ret) return ret;
 	}
 
 	signal(SIGTERM, sigterm_handler);
