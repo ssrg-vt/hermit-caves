@@ -569,7 +569,7 @@ static int vcpu_loop(void)
 				}
 
 			case UHYVE_PORT_INIT_RMEM: {
-				uhyve_init_rmem_t *arg = (uhyve_pfault_t *)(guest_mem + raddr);
+				uhyve_init_rmem_t *arg = (uhyve_init_rmem_t *)(guest_mem + raddr);
 				rmem_init(arg->heap_size, arg->bss_size, arg->data_size);
 				break;
 			}
