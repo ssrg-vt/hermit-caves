@@ -293,7 +293,7 @@ static int vcpu_loop(void)
 		het_migration_set_status(STATUS_READY_FOR_MIGRATION);
 
 	/* Popcorn: open memory usage file */
-	mem_usage_fd = open(MEMORY_USAGE_FILENAME, O_WRONLY | O_TRUNC | O_CREAT,
+	mem_usage_fd = open(MEMORY_USAGE_FILENAME, O_DSYNC | O_WRONLY | O_TRUNC | O_CREAT,
 			S_IRWXU);
 	if(mem_usage_fd == -1)
 		err(EXIT_FAILURE, "Cannot open %s", MEMORY_USAGE_FILENAME);
