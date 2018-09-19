@@ -13,16 +13,6 @@
 #include "uhyve-het-migration.h"
 #include "uhyve-het-migration-ondemand.h"
 
-
-#define PAGE_BITS				12
-#define HUGE_PAGE_BITS			21
-#define PAGE_SIZE				( 1L << PAGE_BITS)
-#define HUGE_PAGE_SIZE			(1UL << HUGE_PAGE_BITS)
-#define PAGE_MASK				((~0L) << PAGE_BITS)
-#define HUGE_PAGE_MASK			(((~0UL) << HUGE_PAGE_BITS) & ~PG_XD)
-#define PAGE_CEIL(addr)			(((addr) + PAGE_SIZE - 1) & PAGE_MASK)
-#define HUGE_PAGE_CEIL(addr)	(((addr) + HUGE_PAGE_SIZE - 1) & ((~0UL) << HUGE_PAGE_BITS))
-
 extern uint8_t* guest_mem;
 extern int client_socket;
 static int64_t heap_size_left, bss_size_left, data_size_left;

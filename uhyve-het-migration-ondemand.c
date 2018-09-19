@@ -172,9 +172,19 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 	uint64_t req_addr;
 	uint8_t npages;
 	uint64_t page_size;
-	uint64_t initial_heap_size = heap_size;
-	uint64_t initial_bss_size = bss_size;
-	uint64_t initial_data_size = data_size;
+
+	heap_size = PAGE_CEIL(heap_size);
+	/* WARNING: we are on the server side here so sizes are inverted ! */
+#ifdef __x86_64__
+	data_size = PAGE_CEIL(data_size);
+	bss_size = PAGE_CEIL(bss_size);
+#else
+	data_size = HUGE_PAGE_CEIL(data_size);
+	bss_size = HUGE_PAGE_CEIL(bss_size);
+#endif
+	int64_t initial_heap_size = heap_size;
+	int64_t initial_bss_size = bss_size;
+	int64_t initial_data_size = data_size;
 
 	signal(SIGPIPE, handle_broken_pipe);
 
@@ -196,8 +206,6 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 
 	while(run_server) {
 		receive_page_request(server, &req_type, &req_addr, &npages, &page_size);
-		/* FIXME I see a lot of requests for a single page while most of the
-		 * reqquest should be 16 pages */
 #if 0
 		char *type_str;
 		if(req_type == PFAULT_HEAP)
@@ -243,7 +251,7 @@ int on_demand_page_migration(uint64_t heap_size, uint64_t bss_size, uint64_t dat
 		int heap_pct = (heap_size*100)/initial_heap_size;
 		int bss_pct = (bss_size*100)/initial_bss_size;
 		int data_pct = (data_size*100)/initial_data_size;
-		sprintf(rmem_str, "%ld.%06ld;%llu;%u;%llu;%d;%d;%d;%d;%d;%d\n",
+		sprintf(rmem_str, "%ld.%06ld;%llu;%u;%lld;%d;%lld;%d;%lld;%d\n",
 				ts_relative.tv_sec, ts_relative.tv_usec, req_addr, npages,
 				heap_size, heap_pct, bss_size, bss_pct, data_size, data_pct);
 		if(write(rmem_trace_fd, rmem_str, strlen(rmem_str)) != strlen(rmem_str))
