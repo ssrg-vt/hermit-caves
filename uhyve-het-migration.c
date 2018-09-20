@@ -49,25 +49,7 @@ void migrate_signal_handler(int signum) {
 
 int register_migration_signal(void) {
 
-	signal(MIGRATION_SIGNAL, &migrate_signal_handler);
-
-	if(signal(MIGRATION_SIGNAL, migrate_signal_handler) == SIG_ERR) {
-		perror("signal");
-		return -1;
-	}
-
-	return 0;
-}
-
-/* fire MIGRATION_SIGNAL after sec seconds, this is done with a one-shot timer
- * */
-int test_migration(int sec) {
-	timer_t timerid;
 	struct sigaction sa;
-	struct sigevent sev;
-	struct itimerspec its;
-
-	/* prepare sigaction */
 	sa.sa_flags = 0x0;
 	sa.sa_handler = &migrate_signal_handler;
 	sigemptyset(&sa.sa_mask);
@@ -75,6 +57,15 @@ int test_migration(int sec) {
 		perror("sigaction");
 		return -1;
 	}
+	return 0;
+}
+
+/* fire MIGRATION_SIGNAL after sec seconds, this is done with a one-shot timer
+ * */
+int test_migration(int sec) {
+	timer_t timerid;
+	struct sigevent sev;
+	struct itimerspec its;
 
 	/* timer */
 	sev.sigev_notify = SIGEV_SIGNAL;

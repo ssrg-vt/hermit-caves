@@ -883,6 +883,8 @@ int uhyve_loop(int argc, char **argv)
 	if (hermit_debug && (atoi(hermit_debug) != 0))
 		uhyve_gdb_enabled = true;
 
+	register_migration_signal();
+
 	if(hermit_migtest) {
 		int timeout = atoi(hermit_migtest);
 		if(timeout > 0)
